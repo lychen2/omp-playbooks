@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.51] - 2026-11-15
+
 ### Fixed
 
 - Fixed "Playbook: open" in Tern's command palette on Windows: the plugin passes the document path and the focused pane to the document service, so paths with spaces, quotes and backslashes arrive unchanged
