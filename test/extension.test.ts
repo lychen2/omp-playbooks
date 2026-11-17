@@ -13,6 +13,8 @@ import extension from "../src/extension/index";
 import { K1Client } from "../src/extension/client";
 import { ensureTernPlugin } from "../src/extension/tern-setup";
 import { playbookTopics } from "../src/extension/topics";
+import { parseHtmlForm, spansText } from "@oh-my-pi/pi-tui/html-form/parse";
+import { defaultFormData, type HtmlFormData } from "@oh-my-pi/pi-tui/html-form/data";
 
 const summary = { id: "r1", name: "Run", status: "running", started_at: 1, finished_at: null, done: 0, total: 1, update_due: null, update_overdue: false, retrospective: false };
 const block = { id: "b1", kind: "task", title: "Block", body: "Body", status: "todo" };
@@ -117,7 +119,22 @@ async function harness(kind: "main" | "sub" = "main") {
 	const sent = Promise.withResolvers<void>();
 	let aborted = 0;
 	let idle = true;
-	let selectHook: ((title: string) => Promise<void>) | undefined;
+	const forms: string[] = [];
+	const answers: (Answer | null)[] = [];
+	let formHook: ((index: number) => Promise<void>) | undefined;
+	const formDialog = async (html: string) => {
+		const index = forms.length; forms.push(html); await formHook?.(index);
+		const next = answers.shift();
+		return next === null ? undefined : { data: next ? next(html) : defaultFormData(parseHtmlForm(html)) };
+	};
+	const ui = {
+		select: async (title: string, options: string[]) => {
+			menus.push({ title, options });
+			const choice = choices.shift(); return choice === null ? undefined : typeof choice === "string" ? choice : options[0];
+		},
+		notify: (message: string, type: string) => { notices.push({ message, type }); },
+		formDialog: formDialog as typeof formDialog | undefined,
+	};
 	let branch: Entry[] = [
 		{ type: "message", id: "user-1", message: { role: "user", content: "USER" } },
 		{ type: "message", id: "assistant-1", message: { role: "assistant", content: [{ type: "text", text: "FULL FIRST" }, { type: "thinking", thinking: "NO" }, { type: "text", text: "FULL SECOND" }] } },
@@ -127,13 +144,7 @@ async function harness(kind: "main" | "sub" = "main") {
 		sessionManager: { getSessionId: () => "session-test", getBranch: () => branch },
 		abort: () => { aborted++; },
 		isIdle: () => idle,
-		ui: {
-			select: async (title: string, options: string[]) => {
-				menus.push({ title, options }); await selectHook?.(title);
-				const choice = choices.shift(); return choice === null ? undefined : typeof choice === "string" ? choice : options[0];
-			},
-			notify: (message: string, type: string) => { notices.push({ message, type }); },
-		},
+		ui,
 	} as unknown as ExtensionCommandContext;
 	// Only the host surfaces this extension consumes are supplied; production types remain unchanged.
 	const waiting: (() => void)[] = [];
@@ -158,15 +169,36 @@ async function harness(kind: "main" | "sub" = "main") {
 	}
 	cleanup.push(async () => { await event("session_shutdown"); });
 	return {
-		ctx, messages, notices, menus, choices, event, tools, warnings, messageSent: sent.promise,
+		ctx, messages, notices, menus, choices, forms, answers, event, tools, warnings, messageSent: sent.promise,
 		get aborted() { return aborted; }, get registered() { return { tools: [...tools.keys()], commands: [...commands.keys()] }; },
 		set idle(value: boolean) { idle = value; },
 		nextMessage: (): Promise<void> => { const next = Promise.withResolvers<void>(); waiting.push(next.resolve); return next.promise; },
-		set branch(value: Entry[]) { branch = value; }, set selectHook(value: typeof selectHook) { selectHook = value; },
+		set branch(value: Entry[]) { branch = value; }, set formHook(value: typeof formHook) { formHook = value; },
+		set hostForms(value: boolean) { ui.formDialog = value ? formDialog : undefined; },
 		execute: async (name: string, params: unknown) => { await start(); return tools.get(name)!.execute("tool", params, undefined, undefined, ctx); },
 		call: async (input: unknown, toolName = "eval"): Promise<ToolCallResult> => { await start(); return await event("tool_call", { toolName, input }) as ToolCallResult; },
 		command: async (name: string, doc = "") => { await start(); return commands.get(name)!.handler(doc, ctx); },
 	};
+}
+type Answer = (html: string) => HtmlFormData;
+/** Answers a form as a person would: each value picks the option that carries it; questions not named keep the host's defaults. */
+function choose(...values: string[]): Answer {
+	return html => {
+		const form = parseHtmlForm(html);
+		const data = defaultFormData(form);
+		for (const value of values) {
+			const field = form.fields.find(item => item.kind === "choice" && item.options.some(option => option.value === value));
+			if (field?.kind !== "choice") throw new Error(`no option carries ${value}`);
+			data[field.name] = value;
+		}
+		return data;
+	};
+}
+/** The labels of one named choice field, as the host draws them. */
+function optionsOf(html: string, name: string): string[] {
+	const field = parseHtmlForm(html).fields.find(item => item.name === name);
+	if (field?.kind !== "choice") throw new Error(`no choice field ${name}`);
+	return field.options.map(option => spansText(option.label));
 }
 async function fakeTern(exit = 0, stdout = "") {
 	const dir = await temporaryDirectory();
@@ -362,18 +394,52 @@ for (const run of [undefined, "r1"] as const) {
 	});
 }
 
-test("add writes full text, quote and human origin; cancelling any message/run/kind/block menu suppresses post", async () => {
-	const s = await service(); const h = await harness(); h.choices.push("assistant-1: FULL FIRST FULL SECOND");
+test("add asks two forms (message, log and kind, then block) and writes full text, quote and human origin", async () => {
+	const s = await service(); const h = await harness();
+	h.answers.push(choose("assistant-1", "playbook", "update"), choose("none"));
 	await h.command("playbook-add", s.doc);
+	expect(h.menus).toEqual([]);
+	expect(s.frames.map(frame => frame.op)).toEqual(["hello", "runs", "read", "post"]);
+	expect(h.forms).toHaveLength(2);
+	const first = parseHtmlForm(h.forms[0]!);
+	expect(first.fields.map(field => field.name)).toEqual(["message", "log", "kind"]);
+	expect(first.sections.filter(section => section.blocks.some(block => block.kind === "field"))).toHaveLength(1);
+	expect(parseHtmlForm(h.forms[1]!).fields.map(field => field.name)).toEqual(["block"]);
 	expect(s.frames.at(-1)).toMatchObject({ op: "post", args: { kind: "update", text: "FULL FIRST\nFULL SECOND", quote: "assistant-1", origin: "human" } });
+	expect(s.frames.at(-1)!.args).not.toHaveProperty("block");
 	expect(h.notices.at(-1)!.message).toContain("7");
-	for (let stage = 0; stage < 4; stage++) {
-		h.choices.push(...Array<undefined>(stage).fill(undefined), null);
+	for (const answers of [[null], [choose("assistant-1", "playbook", "update"), null]]) {
+		h.answers.push(...answers);
 		const before = s.frames.filter(frame => frame.op === "post").length;
 		await h.command("playbook-add", s.doc);
 		expect(s.frames.filter(frame => frame.op === "post")).toHaveLength(before);
 	}
+	expect(h.notices.filter(notice => notice.type === "error")).toEqual([]);
 	expect(() => h.tools.get("playbook_timeline")!.parameters.parse({ doc: s.doc, op: "post", run: "r1", kind: "result", text: "x", origin: "human" })).toThrow();
+});
+
+test("add shows message text as label text: markup characters are not parsed as HTML", async () => {
+	const s = await service(); const h = await harness();
+	h.branch = [{ type: "message", id: "assistant-1", message: { role: "assistant", content: [{ type: "text", text: 'FULL <FIRST> & "SECOND"' }] } }];
+	h.answers.push(choose("assistant-1", "playbook", "update"));
+	await h.command("playbook-add", s.doc);
+	expect(optionsOf(h.forms[0]!, "message")).toEqual(['assistant-1: FULL <FIRST> & "SECOND"']);
+	expect(s.frames.at(-1)).toMatchObject({ op: "post", args: { text: 'FULL <FIRST> & "SECOND"' } });
+});
+
+test("add rejects a record kind typed outside the offered options and posts nothing", async () => {
+	const s = await service(); const h = await harness();
+	h.answers.push(html => ({ ...choose("assistant-1", "playbook")(html), kind: "typed by hand" }));
+	await h.command("playbook-add", s.doc);
+	expect(h.notices.at(-1)).toEqual({ message: "记录类型选择无效", type: "error" });
+	expect(s.frames.some(frame => frame.op === "post")).toBe(false);
+});
+
+test("add on a host without formDialog reports one error and asks nothing", async () => {
+	const s = await service(); const h = await harness(); h.hostForms = false;
+	await h.command("playbook-add", s.doc);
+	expect(h.notices).toEqual([{ message: "这个 omp 无法显示表单（ui.formDialog），/playbook-add 无法提问", type: "error" }]);
+	expect(h.forms).toEqual([]); expect(s.frames.filter(frame => frame.op !== "hello")).toEqual([]);
 });
 
 for (const lang of ["en", "zh"] as const) {
@@ -382,11 +448,10 @@ for (const lang of ["en", "zh"] as const) {
 		process.env.OMOMP_LANG = lang;
 		cleanup.push(() => { if (previous === undefined) delete process.env.OMOMP_LANG; else process.env.OMOMP_LANG = previous; });
 		const s = await service(); const h = await harness();
-		const label = lang === "zh" ? "结果" : "Result";
-		h.choices.push(undefined, undefined, label);
+		h.answers.push(choose("playbook", "result"), choose());
 		await h.command("playbook-add", s.doc);
-		expect(h.menus[1]!.options).toContain(`r1: Run (${lang === "zh" ? "运行中" : "Running"})`);
-		expect(h.menus[2]!.options).toEqual(lang === "zh" ? ["进展", "结果", "失败", "复盘"] : ["Update", "Result", "Failure", "Retrospective"]);
+		expect(optionsOf(h.forms[0]!, "log")).toContain(`r1: Run (${lang === "zh" ? "运行中" : "Running"})`);
+		expect(optionsOf(h.forms[0]!, "kind")).toEqual(lang === "zh" ? ["进展", "结果", "失败", "复盘"] : ["Update", "Result", "Failure", "Retrospective"]);
 		expect(s.frames.at(-1)).toMatchObject({ op: "post", args: { kind: "result", origin: "human" } });
 	});
 }
@@ -398,9 +463,10 @@ test("show calls a real tern child with the hello pane unchanged; add offers lat
 	expect(s.frames[0]).toMatchObject({ args: { pane } });
 	h.branch = Array.from({ length: 25 }, (_, i): Entry => ({ type: "message", id: "message-" + i, message: { role: i % 2 ? "user" : "assistant", content: [{ type: "text", text: "text-" + i }] } }));
 	h.branch = [...h.ctx.sessionManager.getBranch() as unknown as Entry[], { type: "custom", id: "custom" }, { type: "message", id: "empty", message: { role: "user", content: "" } }, { type: "message", id: "tool", message: { role: "toolResult", content: "ignore" } }];
-	h.choices.push(null); await h.command("playbook-add");
-	expect(h.menus[0]!.options).toHaveLength(20); expect(h.menus[0]!.options[0]).toBe("message-24: text-24");
-	expect(h.menus[0]!.options.at(-1)).toBe("message-5: text-5"); expect(s.frames.some(frame => frame.op === "post")).toBe(false);
+	h.answers.push(null); await h.command("playbook-add");
+	const messages = optionsOf(h.forms[0]!, "message");
+	expect(messages).toHaveLength(20); expect(messages[0]).toBe("message-24: text-24");
+	expect(messages.at(-1)).toBe("message-5: text-5"); expect(s.frames.some(frame => frame.op === "post")).toBe(false);
 });
 
 test("open starts the document service beside the coordinator pane and returns hello once it listens", async () => {
@@ -510,8 +576,11 @@ for (const command of ["playbook-add", "playbook-show"]) {
 	test(`${command}: unique live connection is used; multiple connections prompt and allow cancellation`, async () => {
 		const a = await service("pane-a"); const b = await service("pane-b"); const tern = await fakeTern(); const h = await harness();
 		await h.execute("playbook_open", { doc: a.doc });
+		if (command === "playbook-add") h.answers.push(null);
 		await h.command(command); expect(h.menus.some(menu => menu.title === "选择 Playbook")).toBe(false);
-		await h.execute("playbook_open", { doc: b.doc }); h.choices.push(await realpath(b.doc)); await h.command(command);
+		await h.execute("playbook_open", { doc: b.doc }); h.choices.push(await realpath(b.doc));
+		if (command === "playbook-add") h.answers.push(choose("playbook", "update"));
+		await h.command(command);
 		expect(h.menus.find(menu => menu.title === "选择 Playbook")!.options).toEqual([await realpath(a.doc), await realpath(b.doc)]);
 		if (command === "playbook-show") expect(await tern.args()).toEqual(["focus", "pane-a", "--json", "focus", "pane-b", "--json"]);
 		else expect(b.frames.at(-1)!.op).toBe("post");
@@ -535,15 +604,14 @@ test("show keeps a failing tern child's exit code and stderr", async () => {
 for (const op of ["runs", "post"] as const) {
 	for (const failure of ["protocol", "Disconnected", "NoService"] as const) {
 		test(`add ${op} ${failure} notifies and stops without retry`, async () => {
-			const s = await service(); const h = await harness(); const normal = (frame: Frame, connection: IpcConnection) => respond(connection, frame, frame.op === "hello" ? { blocks: ["b1"], runs: [summary] } : frame.op === "runs" ? { runs: [summary] } : frame.op === "read" ? { title: "Book", blocks: [block] } : { seq: 7 });
+			const s = await service(); const h = await harness(); h.answers.push(choose("playbook", "update"), choose()); const normal = (frame: Frame, connection: IpcConnection) => respond(connection, frame, frame.op === "hello" ? { blocks: ["b1"], runs: [summary] } : frame.op === "runs" ? { runs: [summary] } : frame.op === "read" ? { title: "Book", blocks: [block] } : { seq: 7 });
 			s.handler = (frame, connection) => {
 				if (frame.op !== op || failure === "NoService") { normal(frame, connection); return; }
 				if (failure === "Disconnected") connection.destroy();
 				else connection.send(JSON.stringify({ id: frame.id, ok: false, error: { code: "BadValue", message: "rejected " + op } }));
 			};
-			if (failure === "NoService") h.selectHook = async title => {
-				if (title === (op === "runs" ? "选择会话消息" : "选择块")) { await s.disconnect(); await s.stop(); }
-			};
+			if (failure === "NoService" && op === "runs") await s.stop();
+			if (failure === "NoService" && op === "post") h.formHook = async index => { if (index === 1) { await s.disconnect(); await s.stop(); } };
 			await h.command("playbook-add", s.doc);
 			expect(h.notices.at(-1)!.type).toBe("error"); expect(h.notices.at(-1)!.message).toContain(failure === "protocol" ? "BadValue: rejected " + op : failure);
 			expect(s.frames.filter(frame => frame.op === op)).toHaveLength(failure === "NoService" ? 0 : 1);
@@ -552,13 +620,12 @@ for (const op of ["runs", "post"] as const) {
 	}
 }
 
-test("add reconnects before runs and post when transport disappears during menu selection", async () => {
+test("add reconnects before read and post when transport disappears while a form is open", async () => {
 	const s = await service(); const h = await harness();
-	h.selectHook = async title => {
-		if (title === "选择会话消息" || title === "选择块") await s.disconnect();
-	};
+	h.answers.push(choose("playbook", "update"), choose());
+	h.formHook = async () => { await s.disconnect(); };
 	await h.command("playbook-add", s.doc);
-	expect(s.frames.map(frame => frame.op)).toEqual(["hello", "hello", "runs", "read", "hello", "post"]);
+	expect(s.frames.map(frame => frame.op)).toEqual(["hello", "runs", "hello", "read", "hello", "post"]);
 	expect(h.notices.at(-1)).toEqual({ message: "已写入 Playbook 时间线条目 7", type: "info" });
 });
 

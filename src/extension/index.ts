@@ -28,6 +28,31 @@ function ternNotice(state: TernPluginState): { readonly text: string; readonly l
 	}
 }
 
+/** One answer a form question offers: the value a submission carries, the label shown and what it stands for. */
+type Choice<T> = { readonly value: string; readonly label: string; readonly choice: T };
+
+/** Text as HTML character data and attribute values: the form parser decodes it back, so labels read exactly as written. */
+function escapeHtml(text: string): string {
+	return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+/** A long list as one dropdown row: each option shows its full label when the row expands. */
+function dropdownHtml(name: string, question: string, options: readonly Choice<unknown>[]): string {
+	return `<label for="${name}">${escapeHtml(question)}</label>\n<select id="${name}" name="${name}">\n${options.map(option => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join("\n")}\n</select>`;
+}
+
+/** A short list as a radio group; `required` keeps the person from submitting it unanswered. */
+function radioHtml(name: string, question: string, options: readonly Choice<unknown>[]): string {
+	return `<p>${escapeHtml(question)}</p>\n${options.map(option => `<label><input type="radio" name="${name}" value="${escapeHtml(option.value)}" required> ${escapeHtml(option.label)}</label>`).join("\n")}`;
+}
+
+/** The option a submission chose for one question; a value outside the offered options is an error, never a fallback. */
+function chosen<T>(data: Record<string, string | number | string[]>, name: string, choices: readonly Choice<T>[], unknown: string): T {
+	const picked = choices.find(item => item.value === data[name]);
+	if (picked === undefined) throw new Error(unknown);
+	return picked.choice;
+}
+
 /**
  * The Tern pane this omp runs in: the session daemon sets TERN_PANE to the pane's numeric id, which
  * also names this session's pane endpoint. Any other value or none is not a Tern pane.
@@ -501,29 +526,37 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 					return text ? [{ id: entry.id, text, label: `${entry.id}: ${text.replace(/\s+/g, " ").slice(0, 90)}` }] : [];
 				}).slice(-20).reverse();
 				if (!messages.length) { ctx.ui.notify(tr("No user or assistant messages with text", "没有包含文本的用户或助手消息"), "warning"); return; }
-				const messageLabel = await ctx.ui.select(tr("Choose session message", "选择会话消息"), messages.map(message => message.label)); if (messageLabel === undefined) return;
-				const message = messages.find(item => item.label === messageLabel); if (!message) throw new Error(tr("Unknown message selection", "消息选择无效"));
+				const ui = ctx.ui;
+				if (ui.formDialog === undefined) { ui.notify(tr("This omp cannot show forms (ui.formDialog), so /playbook-add cannot ask its questions", "这个 omp 无法显示表单（ui.formDialog），/playbook-add 无法提问"), "error"); return; }
 				const runs = runsResult.parse(await result(client, { op: "runs", args: {} })).runs;
 				const statusLabels = { running: tr("Running", "运行中"), finished: tr("Finished", "已结束") };
-				const targetChoices = [{ id: undefined, label: tr("Playbook itself", "Playbook 本身") }, ...runs.map(item => ({ id: item.id, label: `${item.id}: ${item.name} (${statusLabels[item.status]})` }))];
-				const targetLabel = await ctx.ui.select(tr("Choose log", "选择日志"), targetChoices.map(item => item.label)); if (targetLabel === undefined) return;
-				const target = targetChoices.find(item => item.label === targetLabel); if (!target) throw new Error(tr("Unknown log selection", "日志选择无效"));
-				const kindChoices: readonly { value: RecordKind; label: string }[] = [
-					{ value: "update", label: tr("Update", "进展") },
-					{ value: "result", label: tr("Result", "结果") },
-					{ value: "failure", label: tr("Failure", "失败") },
-					{ value: "retrospective", label: tr("Retrospective", "复盘") },
+				const messageChoices: readonly Choice<(typeof messages)[number]>[] = messages.map(item => ({ value: item.id, label: item.label, choice: item }));
+				const logChoices: readonly Choice<RunId | undefined>[] = [
+					{ value: "playbook", label: tr("Playbook itself", "Playbook 本身"), choice: undefined },
+					...runs.map(item => ({ value: item.id, label: `${item.id}: ${item.name} (${statusLabels[item.status]})`, choice: item.id })),
 				];
-				const kindLabel = await ctx.ui.select(tr("Choose record kind", "选择记录类型"), kindChoices.map(item => item.label)); if (kindLabel === undefined) return;
-				const chosenKind = kindChoices.find(item => item.label === kindLabel)?.value;
-				if (chosenKind === undefined) throw new Error(tr("Unknown record kind selection", "记录类型选择无效"));
-				const document = readResult.parse(await result(client, { op: "read", args: scoped(target.id) }));
-				const blockChoices = document.blocks.map(item => ({ id: item.id, label: `${item.id}: ${item.title}` }));
-				const noBlock = tr("Not about a block", "不关于块");
-				const blockLabel = await ctx.ui.select(tr("Choose block", "选择块"), [noBlock, ...blockChoices.map(item => item.label)]); if (blockLabel === undefined) return;
-				const chosenBlock = blockLabel === noBlock ? undefined : blockChoices.find(item => item.label === blockLabel)?.id;
-				if (blockLabel !== noBlock && chosenBlock === undefined) throw new Error(tr("Unknown block selection", "块选择无效"));
-				const posted = postResult.parse(await result(client, { op: "post", args: { ...scoped(target.id), kind: chosenKind, text: message.text, ...(chosenBlock ? { block: chosenBlock } : {}), quote: message.id, origin: "human" } }));
+				const kindChoices: readonly Choice<RecordKind>[] = [
+					{ value: "update", label: tr("Update", "进展"), choice: "update" },
+					{ value: "result", label: tr("Result", "结果"), choice: "result" },
+					{ value: "failure", label: tr("Failure", "失败"), choice: "failure" },
+					{ value: "retrospective", label: tr("Retrospective", "复盘"), choice: "retrospective" },
+				];
+				// One form: its questions share one section, so the host draws them on one screen without tabs.
+				const first = await ui.formDialog(`<form>\n<fieldset>\n${dropdownHtml("message", tr("Choose session message", "选择会话消息"), messageChoices)}\n${radioHtml("log", tr("Choose log", "选择日志"), logChoices)}\n${radioHtml("kind", tr("Choose record kind", "选择记录类型"), kindChoices)}\n</fieldset>\n</form>`);
+				if (first === undefined) return;
+				const message = chosen(first.data, "message", messageChoices, tr("Unknown message selection", "消息选择无效"));
+				const target = chosen(first.data, "log", logChoices, tr("Unknown log selection", "日志选择无效"));
+				const kind = chosen(first.data, "kind", kindChoices, tr("Unknown record kind selection", "记录类型选择无效"));
+				// The block list is the chosen log's scope, so it is read only after that answer.
+				const document = readResult.parse(await result(client, { op: "read", args: scoped(target) }));
+				const blockChoices: readonly Choice<BlockId | undefined>[] = [
+					{ value: "none", label: tr("Not about a block", "不关于块"), choice: undefined },
+					...document.blocks.map(item => ({ value: item.id, label: `${item.id}: ${item.title}`, choice: item.id })),
+				];
+				const second = await ui.formDialog(`<form>\n<fieldset>\n${dropdownHtml("block", tr("Choose block", "选择块"), blockChoices)}\n</fieldset>\n</form>`);
+				if (second === undefined) return;
+				const block = chosen(second.data, "block", blockChoices, tr("Unknown block selection", "块选择无效"));
+				const posted = postResult.parse(await result(client, { op: "post", args: { ...scoped(target), kind, text: message.text, ...(block ? { block } : {}), quote: message.id, origin: "human" } }));
 				ctx.ui.notify(tr(`Playbook timeline entry ${posted.seq} written`, `已写入 Playbook 时间线条目 ${posted.seq}`), "info");
 			} catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "error"); }
 		},
