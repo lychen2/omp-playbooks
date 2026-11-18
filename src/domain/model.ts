@@ -72,8 +72,10 @@ export function fieldText(block: Block, field: BlockField): string | null {
 	if (field === "title") return block.title;
 	const content = block.content;
 	switch (content.kind) {
-		case "task": return field === "body" ? content.body : null;
-		case "design": return field === "requirement" ? content.requirement : field === "design" ? content.design : null;
+		case "task":
+			return field === "body" ? content.body : null;
+		case "design":
+			return field === "requirement" ? content.requirement : field === "design" ? content.design : null;
 	}
 }
 
@@ -82,7 +84,8 @@ export function withField(block: Block, field: BlockField, text: string): Block 
 	if (field === "title") return { ...block, title: text };
 	const content = block.content;
 	switch (content.kind) {
-		case "task": return field === "body" ? { ...block, content: { ...content, body: text } } : null;
+		case "task":
+			return field === "body" ? { ...block, content: { ...content, body: text } } : null;
 		case "design":
 			if (field === "requirement") return { ...block, content: { ...content, requirement: text } };
 			if (field === "design") return { ...block, content: { ...content, design: text } };
@@ -98,7 +101,7 @@ export function coordinatorField(content: BlockContent): "body" | "design" {
 /** Orchestration block: a task block whose whole body is one `js` or `py` fenced code block (README §定义). */
 export function isOrchestration(content: BlockContent): boolean {
 	if (content.kind !== "task") return false;
-	return /^(`{3,}|~{3,})(js|py)[ \t]*\n[\s\S]*?\n\1[ \t]*\n?$/.test(content.body.trim() + "\n");
+	return /^(`{3,}|~{3,})(js|py)[ \t]*\n[\s\S]*?\n\1[ \t]*\n?$/.test(`${content.body.trim()}\n`);
 }
 
 /**
@@ -113,9 +116,12 @@ export function outlinedText(content: BlockContent): string | null {
 /** Whether a person may write `field` on a block of this kind. */
 export function humanFieldValid(content: BlockContent, field: HumanField): boolean {
 	switch (field) {
-		case "title": return true;
-		case "body": return content.kind === "task";
-		case "requirement": return content.kind === "design";
+		case "title":
+			return true;
+		case "body":
+			return content.kind === "task";
+		case "requirement":
+			return content.kind === "design";
 	}
 }
 
@@ -156,9 +162,7 @@ export type EditOrigin = "human" | "coordinator" | "disk";
 export type EntryOrigin = EditOrigin | "service";
 
 /** Block lock (README §定义 块锁): the coordinator holds a block for the length of one `playbook_edit` call. */
-export type BlockLock =
-	| { readonly kind: "none" }
-	| { readonly kind: "coordinator"; readonly request: string };
+export type BlockLock = { readonly kind: "none" } | { readonly kind: "coordinator"; readonly request: string };
 
 // ---------------------------------------------------------------- references
 
@@ -222,7 +226,11 @@ export interface IssueValue {
 
 /** Result of fetching one external target (references.md §5, contracts.md K3). */
 export type FetchOutcome =
-	| { readonly ok: true; readonly at: number; readonly value: { readonly kind: "issue"; readonly issue: IssueValue } | { readonly kind: "file"; readonly text: string } }
+	| {
+			readonly ok: true;
+			readonly at: number;
+			readonly value: { readonly kind: "issue"; readonly issue: IssueValue } | { readonly kind: "file"; readonly text: string };
+	  }
 	| { readonly ok: false; readonly at: number; readonly error: string };
 
 /** Key of a fetch table: the canonical target text. */
@@ -258,7 +266,14 @@ export interface ErrorSite {
 
 export type Source =
 	| { readonly kind: "block"; readonly target: TargetKey; readonly expression: string | null }
-	| { readonly kind: "result"; readonly target: TargetKey; readonly expression: string | null; readonly seq: number; readonly origin: EntryOrigin; readonly launch: LaunchId | null }
+	| {
+			readonly kind: "result";
+			readonly target: TargetKey;
+			readonly expression: string | null;
+			readonly seq: number;
+			readonly origin: EntryOrigin;
+			readonly launch: LaunchId | null;
+	  }
 	| { readonly kind: "external"; readonly target: TargetKey; readonly expression: string | null; readonly fetchedAt: number };
 
 export type CompileResult =
@@ -348,14 +363,24 @@ export interface TimelineEntry {
 
 // ---------------------------------------------------------------- checks
 
-export type JudgeReport = { readonly kind: "answers"; readonly answers: Readonly<Record<string, number>> } | { readonly kind: "judge_unavailable" };
+export type JudgeReport =
+	| { readonly kind: "answers"; readonly answers: Readonly<Record<string, number>> }
+	| { readonly kind: "judge_unavailable" };
 
 export type FindingName = "compile" | "empty_expansion" | "render_error" | "render_pending" | "draft" | "outline";
 export type Findings = Readonly<Record<FindingName, boolean>>; // true = fails
 
 // ---------------------------------------------------------------- events (K1)
 
-export type EventName = "block_changed" | "launch_requested" | "stop_requested" | "status_changed" | "update_due" | "interrupted" | "revision_requested" | "agents_requested";
+export type EventName =
+	| "block_changed"
+	| "launch_requested"
+	| "stop_requested"
+	| "status_changed"
+	| "update_due"
+	| "interrupted"
+	| "revision_requested"
+	| "agents_requested";
 
 /**
  * The subagent types the coordinator's omp session can launch, as the coordinator last answered.

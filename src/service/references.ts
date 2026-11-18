@@ -1,9 +1,23 @@
+import { tr } from "../../omomp-shared/i18n";
+import type {
+	BlockContent,
+	BlockId,
+	CompileInput,
+	CompileResult,
+	ErrorSite,
+	ExternalTarget,
+	IssueValue,
+	Reference,
+	ReferenceExpression,
+	Selector,
+	Source,
+	Target,
+} from "../domain/model";
 import { parseBlockId } from "../domain/model";
-import type { BlockContent, BlockId, CompileInput, CompileResult, ErrorSite, ExternalTarget, IssueValue, Reference, ReferenceExpression, Selector, Source, Target } from "../domain/model";
-import { tr } from "../i18n";
-import { panelText, replacePanel } from "./draft/document";
 import type { ReferencesModule } from "../domain/ports";
-import { qualifiedUses, resolveSlots, slotTable, slotTexts, type SlotTable } from "./draft/slot";
+import { panelText, replacePanel } from "./draft/document";
+import { qualifiedUses, resolveSlots, type SlotTable, slotTable, slotTexts } from "./draft/slot";
+
 type Span = { start: number; end: number };
 type Selection = { ok: true; text: string } | { ok: false; reason: string };
 type ParsedExpression = { ok: true; value: ReferenceExpression } | { ok: false; reason: string };
@@ -45,7 +59,10 @@ function codeSpans(body: string): Span[] {
 			fenceIndex++;
 			continue;
 		}
-		if (body[index] !== "`") { index++; continue; }
+		if (body[index] !== "`") {
+			index++;
+			continue;
+		}
 		const start = index;
 		while (body[index] === "`") index++;
 		const length = index - start;
@@ -53,7 +70,10 @@ function codeSpans(body: string): Span[] {
 		const limit = fence?.start ?? body.length;
 		let found = false;
 		while (close < limit) {
-			if (body[close] !== "`") { close++; continue; }
+			if (body[close] !== "`") {
+				close++;
+				continue;
+			}
 			const run = close;
 			while (body[close] === "`") close++;
 			if (close - run === length) {
@@ -75,7 +95,10 @@ function parseReferences(body: string): Reference[] {
 	for (let index = 0; index < body.length - 1; index++) {
 		while (spans[spanIndex] && spans[spanIndex]!.end <= index) spanIndex++;
 		const span = spans[spanIndex];
-		if (span && index >= span.start) { index = span.end - 1; continue; }
+		if (span && index >= span.start) {
+			index = span.end - 1;
+			continue;
+		}
 		if (!body.startsWith("((", index)) continue;
 		let parentheses = 0;
 		let quoted = false;
@@ -87,7 +110,10 @@ function parseReferences(body: string): Reference[] {
 			if (character === "\n" || character === "\r" || (span && end >= span.start)) break;
 			if (body.startsWith("))", end)) {
 				if (fallback < 0) fallback = end;
-				if (!quoted && parentheses === 0) { terminator = end; break; }
+				if (!quoted && parentheses === 0) {
+					terminator = end;
+					break;
+				}
 			}
 			if (quoted) {
 				if (escaped) escaped = false;
@@ -103,7 +129,12 @@ function parseReferences(body: string): Reference[] {
 		if (terminator >= 0) {
 			const inner = body.slice(index + 2, terminator);
 			const separator = inner.indexOf("|");
-			result.push({ text: body.slice(index, terminator + 2), targetText: (separator < 0 ? inner : inner.slice(0, separator)).trim(), expressionText: separator < 0 ? null : inner.slice(separator + 1).trim(), offset: index });
+			result.push({
+				text: body.slice(index, terminator + 2),
+				targetText: (separator < 0 ? inner : inner.slice(0, separator)).trim(),
+				expressionText: separator < 0 ? null : inner.slice(separator + 1).trim(),
+				offset: index,
+			});
 			index = terminator + 1;
 		}
 	}
@@ -136,10 +167,14 @@ function parseTarget(text: string): Target | null {
 
 function targetKey(target: Target): string {
 	switch (target.kind) {
-		case "block": return target.block;
-		case "result": return `${target.block}.result`;
-		case "issue": return `https://github.com/${target.owner.toLowerCase()}/${target.repo.toLowerCase()}/issues/${target.number}`;
-		case "pull": return `https://github.com/${target.owner.toLowerCase()}/${target.repo.toLowerCase()}/pull/${target.number}`;
+		case "block":
+			return target.block;
+		case "result":
+			return `${target.block}.result`;
+		case "issue":
+			return `https://github.com/${target.owner.toLowerCase()}/${target.repo.toLowerCase()}/issues/${target.number}`;
+		case "pull":
+			return `https://github.com/${target.owner.toLowerCase()}/${target.repo.toLowerCase()}/pull/${target.number}`;
 		case "file": {
 			const parts: string[] = [];
 			for (const part of target.path.split("/")) {
@@ -165,7 +200,10 @@ function parseExpression(expression: string | null): ParsedExpression {
 			else if (character === "\\") escaped = true;
 			else if (character === '"') quoted = false;
 		} else if (character === '"') quoted = true;
-		else if (character === ",") { tokens.push(expression.slice(start, index).trim()); start = index + 1; }
+		else if (character === ",") {
+			tokens.push(expression.slice(start, index).trim());
+			start = index + 1;
+		}
 	}
 	if (quoted) return { ok: false, reason: tr("Unclosed quoted string", "未闭合的引号字符串") };
 	tokens.push(expression.slice(start).trim());
@@ -177,20 +215,32 @@ function parseExpression(expression: string | null): ParsedExpression {
 		if (named) {
 			if (alias !== null) return { ok: false, reason: tr(`Only one as(…) is allowed: ${token}`, `只能写一个 as(…)：${token}`) };
 			let value: unknown;
-			try { value = JSON.parse(named[1]!); } catch { return { ok: false, reason: tr(`Invalid alias: ${token}`, `别名无效：${token}`) }; }
-			if (typeof value !== "string" || !value.trim()) return { ok: false, reason: tr(`An alias cannot be blank: ${token}`, `别名不能为空：${token}`) };
+			try {
+				value = JSON.parse(named[1]!);
+			} catch {
+				return { ok: false, reason: tr(`Invalid alias: ${token}`, `别名无效：${token}`) };
+			}
+			if (typeof value !== "string" || !value.trim())
+				return { ok: false, reason: tr(`An alias cannot be blank: ${token}`, `别名不能为空：${token}`) };
 			alias = value.trim();
 			continue;
 		}
 		picks.push(token);
-		if (token === "title" || token === "body" || token === "comments" || token === "requirement" || token === "design") { selectors.push({ kind: token }); continue; }
+		if (token === "title" || token === "body" || token === "comments" || token === "requirement" || token === "design") {
+			selectors.push({ kind: token });
+			continue;
+		}
 		const panel = /^panel\(\s*"?([A-Z][0-9]*)"?\s*\)$/.exec(token);
-		if (panel) { selectors.push({ kind: "panel", id: panel[1]! }); continue; }
+		if (panel) {
+			selectors.push({ kind: "panel", id: panel[1]! });
+			continue;
+		}
 		const range = /^(lines|comments)\(\s*([1-9][0-9]*)\s*\.\.\s*([1-9][0-9]*)\s*\)$/.exec(token);
 		if (range) {
 			const from = Number(range[2]);
 			const to = Number(range[3]);
-			if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from > to) return { ok: false, reason: tr(`Invalid range: ${token}`, `范围无效：${token}`) };
+			if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from > to)
+				return { ok: false, reason: tr(`Invalid range: ${token}`, `范围无效：${token}`) };
 			selectors.push({ kind: range[1] === "lines" ? "lines" : "commentsRange", from, to });
 			continue;
 		}
@@ -205,8 +255,13 @@ function parseExpression(expression: string | null): ParsedExpression {
 		if (section) {
 			try {
 				const heading: unknown = JSON.parse(section[1]!);
-				if (typeof heading === "string") { selectors.push({ kind: "section", heading }); continue; }
-			} catch { /* Malformed quoted titles are expression errors. */ }
+				if (typeof heading === "string") {
+					selectors.push({ kind: "section", heading });
+					continue;
+				}
+			} catch {
+				/* Malformed quoted titles are expression errors. */
+			}
 		}
 		return { ok: false, reason: tr(`Unknown selector: ${token}`, `未知选择器：${token}`) };
 	}
@@ -227,7 +282,8 @@ function sectionText(text: string, heading: string): Selection {
 		const line = lines[index]!;
 		if (!(fence && offset >= fence.start)) {
 			const atx = /^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)\r?$/.exec(line);
-			if (atx) headings.push({ line: index, end: index + 1, level: atx[1]!.length, title: (atx[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim() });
+			if (atx)
+				headings.push({ line: index, end: index + 1, level: atx[1]!.length, title: (atx[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim() });
 			else if (line.trim() && index + 1 < lines.length) {
 				const underline = /^ {0,3}(=+|-+)[ \t]*\r?$/.exec(lines[index + 1]!);
 				if (underline) headings.push({ line: index, end: index + 2, level: underline[1]![0] === "=" ? 1 : 2, title: line.trim() });
@@ -235,10 +291,10 @@ function sectionText(text: string, heading: string): Selection {
 		}
 		offset += line.length + 1;
 	}
-	const index = headings.findIndex(candidate => candidate.title === heading);
+	const index = headings.findIndex((candidate) => candidate.title === heading);
 	if (index < 0) return { ok: false, reason: tr(`Section not found: ${heading}`, `未找到章节：${heading}`) };
 	const selected = headings[index]!;
-	const next = headings.slice(index + 1).find(candidate => candidate.level <= selected.level);
+	const next = headings.slice(index + 1).find((candidate) => candidate.level <= selected.level);
 	return { ok: true, text: lines.slice(selected.end, next?.line ?? lines.length).join("\n") };
 }
 
@@ -259,7 +315,14 @@ function selectText(text: string, selectors: readonly Selector[]): Selection {
 				selected.push(section.text);
 				break;
 			}
-			case "title": case "body": case "comments": case "commentsLast": case "commentsRange": case "requirement": case "design": case "panel":
+			case "title":
+			case "body":
+			case "comments":
+			case "commentsLast":
+			case "commentsRange":
+			case "requirement":
+			case "design":
+			case "panel":
 				return { ok: false, reason: tr(`Selector ${selector.kind} is invalid for text targets`, `选择器 ${selector.kind} 对文本目标无效`) };
 		}
 	}
@@ -269,13 +332,20 @@ function selectText(text: string, selectors: readonly Selector[]): Selection {
 function selectIssue(issue: IssueValue, selectors: readonly Selector[]): Selection {
 	const selected: string[] = [];
 	const comments = [...issue.comments].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-	const format = (items: typeof comments): string => items.map(comment => `@${comment.author} ${comment.createdAt}:\n${comment.body}`).join("\n\n");
+	const format = (items: typeof comments): string =>
+		items.map((comment) => `@${comment.author} ${comment.createdAt}:\n${comment.body}`).join("\n\n");
 	const effective: readonly Selector[] = selectors.length === 0 ? [{ kind: "title" }, { kind: "body" }, { kind: "comments" }] : selectors;
 	for (const selector of effective) {
 		switch (selector.kind) {
-			case "title": selected.push(issue.title); break;
-			case "body": selected.push(issue.body); break;
-			case "comments": selected.push(format(comments)); break;
+			case "title":
+				selected.push(issue.title);
+				break;
+			case "body":
+				selected.push(issue.body);
+				break;
+			case "comments":
+				selected.push(format(comments));
+				break;
 			case "commentsLast":
 				if (selector.count > comments.length) return { ok: false, reason: tr("Comment count out of bounds", "评论数量超出边界") };
 				selected.push(format(comments.slice(-selector.count)));
@@ -284,7 +354,15 @@ function selectIssue(issue: IssueValue, selectors: readonly Selector[]): Selecti
 				if (selector.to > comments.length) return { ok: false, reason: tr("Comment range out of bounds", "评论范围超出边界") };
 				selected.push(format(comments.slice(selector.from - 1, selector.to)));
 				break;
-			case "lines": case "section": case "requirement": case "design": case "panel": return { ok: false, reason: tr(`Selector ${selector.kind} is invalid for issue targets`, `选择器 ${selector.kind} 对 issue 目标无效`) };
+			case "lines":
+			case "section":
+			case "requirement":
+			case "design":
+			case "panel":
+				return {
+					ok: false,
+					reason: tr(`Selector ${selector.kind} is invalid for issue targets`, `选择器 ${selector.kind} 对 issue 目标无效`),
+				};
 		}
 	}
 	return { ok: true, text: selected.join("\n\n") };
@@ -306,7 +384,10 @@ function referencesOf(content: BlockContent | undefined, table: SlotTable): Refe
  * `{{bN.name}}` is a leaf: only its slot's value is read, so nothing of it is followed. Missing ids
  * are kept, so a block added later changes the closure.
  */
-function reach(roots: readonly BlockId[], contents: ReadonlyMap<BlockId, BlockContent>): { readonly table: SlotTable; readonly expanded: Set<BlockId>; readonly leaves: Set<BlockId> } {
+function reach(
+	roots: readonly BlockId[],
+	contents: ReadonlyMap<BlockId, BlockContent>,
+): { readonly table: SlotTable; readonly expanded: Set<BlockId>; readonly leaves: Set<BlockId> } {
 	const table = slotTable(contents);
 	const expanded = new Set<BlockId>();
 	const leaves = new Set<BlockId>();
@@ -319,7 +400,9 @@ function reach(roots: readonly BlockId[], contents: ReadonlyMap<BlockId, BlockCo
 		const content = contents.get(block);
 		if (content === undefined) continue;
 		for (const { text } of slotTexts(content)) for (const use of qualifiedUses(text)) if (!expanded.has(use.block)) leaves.add(use.block);
-		const children = referencesOf(content, table).map(reference => parseTarget(reference.targetText)).filter((target): target is Extract<Target, { kind: "block" }> => target?.kind === "block");
+		const children = referencesOf(content, table)
+			.map((reference) => parseTarget(reference.targetText))
+			.filter((target): target is Extract<Target, { kind: "block" }> => target?.kind === "block");
 		for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]!.block);
 	}
 	return { table, expanded, leaves };
@@ -360,19 +443,36 @@ type DesignText = { readonly requirement: string; readonly design: string };
 /** A design block as prompt text: both parts by default, or what `selectors` pick (requirement, design, panels). */
 function selectDesign(content: DesignText, selectors: readonly Selector[]): Selection {
 	// An empty requirement is not a requirement: the agent gets no empty <requirement> element.
-	if (selectors.length === 0) return { ok: true, text: [...(content.requirement.trim() ? [`<requirement>\n${content.requirement}\n</requirement>`] : []), `<design>\n${content.design}\n</design>`].join("\n\n") };
+	if (selectors.length === 0)
+		return {
+			ok: true,
+			text: [
+				...(content.requirement.trim() ? [`<requirement>\n${content.requirement}\n</requirement>`] : []),
+				`<design>\n${content.design}\n</design>`,
+			].join("\n\n"),
+		};
 	const selected: string[] = [];
 	for (const selector of selectors) {
 		switch (selector.kind) {
-			case "requirement": if (content.requirement.trim()) selected.push(content.requirement); break;
-			case "design": selected.push(content.design); break;
+			case "requirement":
+				if (content.requirement.trim()) selected.push(content.requirement);
+				break;
+			case "design":
+				selected.push(content.design);
+				break;
 			case "panel": {
 				const panel = panelText(content.design, selector.id);
 				if (!panel.ok) return panel;
 				selected.push(panel.text);
 				break;
 			}
-			case "lines": case "section": case "title": case "body": case "comments": case "commentsLast": case "commentsRange":
+			case "lines":
+			case "section":
+			case "title":
+			case "body":
+			case "comments":
+			case "commentsLast":
+			case "commentsRange":
 				return { ok: false, reason: tr(`Selector ${selector.kind} is invalid for design blocks`, `选择器 ${selector.kind} 对设计块无效`) };
 		}
 	}
@@ -391,7 +491,15 @@ function compiler(input: CompileInput) {
 	/** `text` of `block` with its slots read as their values; a `{{bN.name}}` that reaches no slot fails here. */
 	function resolve(block: BlockId, text: string): Resolved<{ text: string }> {
 		const resolved = resolveSlots(text, table);
-		return resolved.ok ? resolved : { ok: false, error: { kind: "Err", error: { kind: "UnknownSlot", block: resolved.block, slot: resolved.slot, at: { block, reference: resolved.use } } } };
+		return resolved.ok
+			? resolved
+			: {
+					ok: false,
+					error: {
+						kind: "Err",
+						error: { kind: "UnknownSlot", block: resolved.block, slot: resolved.slot, at: { block, reference: resolved.use } },
+					},
+				};
 	}
 	function resolveDesign(block: BlockId, written: Extract<BlockContent, { kind: "design" }>): Resolved<{ content: DesignText }> {
 		const requirement = resolve(block, written.requirement);
@@ -432,17 +540,51 @@ function compiler(input: CompileInput) {
 				if (!result) return { kind: "Err", error: { kind: "NoResult", block: target.block, at } };
 				const selected = selectText(result.text, expression.value.selectors);
 				if (!selected.ok) return badExpression(at, selected.reason);
-				sources.push({ kind: "result", target: key, expression: expression.value.selection, seq: result.seq, origin: result.origin, launch: result.launch });
+				sources.push({
+					kind: "result",
+					target: key,
+					expression: expression.value.selection,
+					seq: result.seq,
+					origin: result.origin,
+					launch: result.launch,
+				});
 				return { kind: "Ok", text: selected.text, sources };
 			}
-			case "file": case "issue": case "pull": {
+			case "file":
+			case "issue":
+			case "pull": {
 				const fetched = input.fetches.get(key);
-				if (!fetched || !fetched.ok) return { kind: "Err", error: { kind: "FetchFailed", target: key, error: fetched?.error ?? tr("Target is absent from the fetch table", "目标不在 fetch 表中"), at } };
-				if ((target.kind === "file") !== (fetched.value.kind === "file")) return { kind: "Err", error: { kind: "FetchFailed", target: key, error: tr("Fetched value does not match target kind", "获取的值与目标类型不匹配"), at } };
-				const selected = fetched.value.kind === "file" ? selectText(fetched.value.text, expression.value.selectors) : selectIssue(fetched.value.issue, expression.value.selectors);
+				if (!fetched?.ok)
+					return {
+						kind: "Err",
+						error: {
+							kind: "FetchFailed",
+							target: key,
+							error: fetched?.error ?? tr("Target is absent from the fetch table", "目标不在 fetch 表中"),
+							at,
+						},
+					};
+				if ((target.kind === "file") !== (fetched.value.kind === "file"))
+					return {
+						kind: "Err",
+						error: {
+							kind: "FetchFailed",
+							target: key,
+							error: tr("Fetched value does not match target kind", "获取的值与目标类型不匹配"),
+							at,
+						},
+					};
+				const selected =
+					fetched.value.kind === "file"
+						? selectText(fetched.value.text, expression.value.selectors)
+						: selectIssue(fetched.value.issue, expression.value.selectors);
 				if (!selected.ok) return badExpression(at, selected.reason);
 				sources.push({ kind: "external", target: key, expression: expression.value.selection, fetchedAt: fetched.at });
-				return { kind: "Ok", text: `<external source="${xmlAttribute(key)}" fetched="${new Date(fetched.at).toISOString()}">\n${selected.text}\n</external>`, sources };
+				return {
+					kind: "Ok",
+					text: `<external source="${xmlAttribute(key)}" fetched="${new Date(fetched.at).toISOString()}">\n${selected.text}\n</external>`,
+					sources,
+				};
 			}
 		}
 	}
@@ -498,24 +640,31 @@ function diffLines(text: string): DiffLine[] {
 	if (text.endsWith("\n")) lines.pop();
 	return lines.map((line, index) => ({ text: line, newline: index < lines.length - 1 || text.endsWith("\n") }));
 }
-function equalLine(a: DiffLine, b: DiffLine): boolean { return a.text === b.text && a.newline === b.newline; }
+function equalLine(a: DiffLine, b: DiffLine): boolean {
+	return a.text === b.text && a.newline === b.newline;
+}
 function lcsRow(a: readonly DiffLine[], b: readonly DiffLine[]): number[] {
 	let previous = new Array<number>(b.length + 1).fill(0);
 	let current = new Array<number>(b.length + 1).fill(0);
 	for (const line of a) {
 		current[0] = 0;
-		for (let index = 0; index < b.length; index++) current[index + 1] = equalLine(line, b[index]!) ? previous[index]! + 1 : Math.max(previous[index + 1]!, current[index]!);
+		for (let index = 0; index < b.length; index++)
+			current[index + 1] = equalLine(line, b[index]!) ? previous[index]! + 1 : Math.max(previous[index + 1]!, current[index]!);
 		[previous, current] = [current, previous];
 	}
 	return previous;
 }
 function diffOperations(a: readonly DiffLine[], b: readonly DiffLine[]): DiffOperation[] {
-	if (a.length === 0) return b.map(line => ({ kind: "+", line }));
-	if (b.length === 0) return a.map(line => ({ kind: "-", line }));
+	if (a.length === 0) return b.map((line) => ({ kind: "+", line }));
+	if (b.length === 0) return a.map((line) => ({ kind: "-", line }));
 	if (a.length === 1) {
-		const match = b.findIndex(line => equalLine(a[0]!, line));
+		const match = b.findIndex((line) => equalLine(a[0]!, line));
 		if (match < 0) return [{ kind: "-", line: a[0]! }, ...b.map((line): DiffOperation => ({ kind: "+", line }))];
-		return [...b.slice(0, match).map((line): DiffOperation => ({ kind: "+", line })), { kind: " ", line: a[0]! }, ...b.slice(match + 1).map((line): DiffOperation => ({ kind: "+", line }))];
+		return [
+			...b.slice(0, match).map((line): DiffOperation => ({ kind: "+", line })),
+			{ kind: " ", line: a[0]! },
+			...b.slice(match + 1).map((line): DiffOperation => ({ kind: "+", line })),
+		];
 	}
 	const middle = Math.floor(a.length / 2);
 	const left = lcsRow(a.slice(0, middle), b);
@@ -524,7 +673,10 @@ function diffOperations(a: readonly DiffLine[], b: readonly DiffLine[]): DiffOpe
 	let best = -1;
 	for (let index = 0; index <= b.length; index++) {
 		const score = left[index]! + right[b.length - index]!;
-		if (score > best) { best = score; split = index; }
+		if (score > best) {
+			best = score;
+			split = index;
+		}
 	}
 	return [...diffOperations(a.slice(0, middle), b.slice(0, split)), ...diffOperations(a.slice(middle), b.slice(split))];
 }
@@ -536,7 +688,8 @@ function unifiedDiff(before: string, after: string): string {
 	let prefix = 0;
 	while (prefix < a.length && prefix < b.length && equalLine(a[prefix]!, b[prefix]!)) prefix++;
 	let suffix = 0;
-	while (suffix < a.length - prefix && suffix < b.length - prefix && equalLine(a[a.length - suffix - 1]!, b[b.length - suffix - 1]!)) suffix++;
+	while (suffix < a.length - prefix && suffix < b.length - prefix && equalLine(a[a.length - suffix - 1]!, b[b.length - suffix - 1]!))
+		suffix++;
 	const operations: DiffOperation[] = [
 		...a.slice(0, prefix).map((line): DiffOperation => ({ kind: " ", line })),
 		...diffOperations(a.slice(prefix, a.length - suffix), b.slice(prefix, b.length - suffix)),
@@ -555,7 +708,7 @@ function unifiedDiff(before: string, after: string): string {
 	let cursor = 0;
 	let oldLine = 1;
 	let newLine = 1;
-	const range = (start: number, count: number): string => count === 0 ? `${start - 1},0` : count === 1 ? `${start}` : `${start},${count}`;
+	const range = (start: number, count: number): string => (count === 0 ? `${start - 1},0` : count === 1 ? `${start}` : `${start},${count}`);
 	for (const hunk of hunks) {
 		while (cursor < hunk.start) {
 			if (operations[cursor]!.kind !== "+") oldLine++;
@@ -563,8 +716,8 @@ function unifiedDiff(before: string, after: string): string {
 			cursor++;
 		}
 		const content = operations.slice(hunk.start, hunk.end);
-		const oldCount = content.filter(operation => operation.kind !== "+").length;
-		const newCount = content.filter(operation => operation.kind !== "-").length;
+		const oldCount = content.filter((operation) => operation.kind !== "+").length;
+		const newCount = content.filter((operation) => operation.kind !== "-").length;
 		output.push(`@@ -${range(oldLine, oldCount)} +${range(newLine, newCount)} @@`);
 		for (const operation of content) {
 			output.push(`${operation.kind}${operation.line.text}`);
@@ -577,4 +730,16 @@ function unifiedDiff(before: string, after: string): string {
 	return `${output.join("\n")}\n`;
 }
 
-export const references: ReferencesModule = { parseReferences, parseTarget, parseExpression, targetKey, closure, externalTargets, resultTargets, compile, expandOne, unifiedDiff, replacePanel };
+export const references: ReferencesModule = {
+	parseReferences,
+	parseTarget,
+	parseExpression,
+	targetKey,
+	closure,
+	externalTargets,
+	resultTargets,
+	compile,
+	expandOne,
+	unifiedDiff,
+	replacePanel,
+};

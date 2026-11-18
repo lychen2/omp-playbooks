@@ -2,7 +2,9 @@
 // only asks it and reports its answer.
 import { dirname, resolve } from "node:path";
 import { ptree } from "@oh-my-pi/pi-utils";
-import { tr, withLanguage } from "../i18n";
+import { tr } from "../../omomp-shared/i18n";
+import { withLanguage } from "../i18n";
+
 type TernResult = { ok: true; json: unknown } | { ok: false; error: string };
 type PaneResult = { ok: true; pane: string } | { ok: false; error: string };
 
@@ -14,10 +16,23 @@ export function ownPane(): string | null {
 async function tern(args: readonly string[]): Promise<TernResult> {
 	try {
 		const { stdout, stderr, exitCode } = await ptree.exec(["tern", ...args], { env: process.env, allowNonZero: true, stderr: "full" });
-		if (exitCode !== 0) return { ok: false, error: tr(`tern ${args[0]} exited with code ${exitCode}: ${stderr.trim() || stdout.trim()}`, `tern 以退出码 ${exitCode} 退出：${stderr.trim() || stdout.trim()}`) };
+		if (exitCode !== 0)
+			return {
+				ok: false,
+				error: tr(
+					`tern ${args[0]} exited with code ${exitCode}: ${stderr.trim() || stdout.trim()}`,
+					`tern 以退出码 ${exitCode} 退出：${stderr.trim() || stdout.trim()}`,
+				),
+			};
 		return { ok: true, json: stdout.trim() ? JSON.parse(stdout) : null };
 	} catch (error: unknown) {
-		return { ok: false, error: tr(`tern: ${error instanceof Error ? error.message : String(error)}`, `tern：${error instanceof Error ? error.message : String(error)}`) };
+		return {
+			ok: false,
+			error: tr(
+				`tern: ${error instanceof Error ? error.message : String(error)}`,
+				`tern：${error instanceof Error ? error.message : String(error)}`,
+			),
+		};
 	}
 }
 
@@ -54,7 +69,11 @@ export async function focusPane(pane: string): Promise<{ ok: true } | { ok: fals
 }
 
 /** Move an existing pane, its program running on, beside `target` wherever that sits in the layout. */
-export async function movePane(pane: string, side: "left-of" | "right-of", target: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function movePane(
+	pane: string,
+	side: "left-of" | "right-of",
+	target: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
 	const result = await tern(["move", pane, side, target, "--json"]);
 	return result.ok ? { ok: true } : result;
 }
@@ -70,15 +89,17 @@ export interface TernPane {
 	readonly ompSession: string | null;
 }
 
-const idOf = (value: unknown): string | null => typeof value === "number" && Number.isSafeInteger(value) ? String(value) : typeof value === "string" && value ? value : null;
-const textOf = (value: unknown): string => typeof value === "string" ? value : "";
+const idOf = (value: unknown): string | null =>
+	typeof value === "number" && Number.isSafeInteger(value) ? String(value) : typeof value === "string" && value ? value : null;
+const textOf = (value: unknown): string => (typeof value === "string" ? value : "");
 
 /** Every pane of the window this program runs in (Tern scopes `inspect` to it). */
 export async function listPanes(): Promise<{ ok: true; panes: readonly TernPane[] } | { ok: false; error: string }> {
 	const result = await tern(["inspect", "--json"]);
 	if (!result.ok) return result;
 	const json = result.json;
-	if (typeof json !== "object" || json === null || !("panes" in json) || !Array.isArray(json.panes)) return { ok: false, error: tr("tern inspect returned no panes", "tern inspect 没有返回面板") };
+	if (typeof json !== "object" || json === null || !("panes" in json) || !Array.isArray(json.panes))
+		return { ok: false, error: tr("tern inspect returned no panes", "tern inspect 没有返回面板") };
 	const places = new Map<string, { session: string; tab: number }>();
 	const sessions = "sessions" in json && Array.isArray(json.sessions) ? json.sessions : [];
 	for (const session of sessions) {
@@ -98,8 +119,15 @@ export async function listPanes(): Promise<{ ok: true; panes: readonly TernPane[
 		if (typeof entry !== "object" || entry === null || !("pane" in entry)) continue;
 		const pane = idOf(entry.pane);
 		if (pane === null) continue;
-		const ompSession = "omp_session_file" in entry && typeof entry.omp_session_file === "string" && entry.omp_session_file ? entry.omp_session_file : null;
-		panes.push({ pane, title: "title" in entry ? textOf(entry.title) : "", cwd: "cwd" in entry ? textOf(entry.cwd) : "", place: places.get(pane) ?? null, ompSession });
+		const ompSession =
+			"omp_session_file" in entry && typeof entry.omp_session_file === "string" && entry.omp_session_file ? entry.omp_session_file : null;
+		panes.push({
+			pane,
+			title: "title" in entry ? textOf(entry.title) : "",
+			cwd: "cwd" in entry ? textOf(entry.cwd) : "",
+			place: places.get(pane) ?? null,
+			ompSession,
+		});
 	}
 	return { ok: true, panes };
 }

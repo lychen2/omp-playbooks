@@ -1,5 +1,5 @@
-import { tr } from "../../i18n";
-import { diagnostic, type DraftDiagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered } from "./contract";
+import { tr } from "../../../omomp-shared/i18n";
+import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered } from "./contract";
 import { escapeXml, textWidth, wrapText } from "./text";
 
 interface Annotation {
@@ -39,7 +39,13 @@ function parseSentence(source: string, line: number, diagnostics: DraftDiagnosti
 		text += source.slice(cursor, open);
 		const close = source.indexOf("]", open + 1);
 		if (close === -1) {
-			diagnostics.push(diagnostic("annot", line, tr("Annotation is missing a closing square bracket; write [fragment]{note}", "标注缺少右方括号；请写成 [片段]{说明}")));
+			diagnostics.push(
+				diagnostic(
+					"annot",
+					line,
+					tr("Annotation is missing a closing square bracket; write [fragment]{note}", "标注缺少右方括号；请写成 [片段]{说明}"),
+				),
+			);
 			break;
 		}
 		// Brackets in ordinary prose are not an annotation until followed by a brace.
@@ -50,16 +56,33 @@ function parseSentence(source: string, line: number, diagnostics: DraftDiagnosti
 		}
 		const end = source.indexOf("}", close + 2);
 		if (end === -1) {
-			diagnostics.push(diagnostic("annot", line, tr("Annotation is missing a closing brace; write [fragment]{note}", "标注缺少右花括号；请写成 [片段]{说明}")));
+			diagnostics.push(
+				diagnostic(
+					"annot",
+					line,
+					tr("Annotation is missing a closing brace; write [fragment]{note}", "标注缺少右花括号；请写成 [片段]{说明}"),
+				),
+			);
 			break;
 		}
 		const span = source.slice(open + 1, close);
 		if (!span) {
-			diagnostics.push(diagnostic("annot", line, tr("Annotation fragment cannot be empty; write [fragment]{note}", "标注片段不能为空；请写成 [片段]{说明}")));
+			diagnostics.push(
+				diagnostic(
+					"annot",
+					line,
+					tr("Annotation fragment cannot be empty; write [fragment]{note}", "标注片段不能为空；请写成 [片段]{说明}"),
+				),
+			);
 		}
 		const rawNote = source.slice(close + 2, end);
 		const red = rawNote.startsWith("!");
-		annotations.push({ start: text.length, end: text.length + span.length, note: (red ? rawNote.slice(1) : rawNote).trim(), tone: red ? "error" : "accent" });
+		annotations.push({
+			start: text.length,
+			end: text.length + span.length,
+			note: (red ? rawNote.slice(1) : rawNote).trim(),
+			tone: red ? "error" : "accent",
+		});
 		text += span;
 		cursor = end + 1;
 	}
@@ -83,14 +106,22 @@ export function parseAnnot(input: FenceInput): Parsed<AnnotSpec> {
 		if (source.startsWith("#")) {
 			const body = source.replace(/^#+\s*/, "");
 			const pipe = body.indexOf("|");
-			groups.push({ heading: (pipe === -1 ? body : body.slice(0, pipe)).trim(), rightNote: pipe === -1 ? "" : body.slice(pipe + 1).trim(), sentences: [], captions: [] });
+			groups.push({
+				heading: (pipe === -1 ? body : body.slice(0, pipe)).trim(),
+				rightNote: pipe === -1 ? "" : body.slice(pipe + 1).trim(),
+				sentences: [],
+				captions: [],
+			});
 		} else if (source.startsWith(">")) {
 			ensureGroup().captions.push(source.replace(/^>\s*/, ""));
 		} else {
 			ensureGroup().sentences.push(parseSentence(source, input.line + index, diagnostics));
 		}
 	}
-	if (!groups.length) diagnostics.push(diagnostic("annot", input.line, tr("Write at least one sentence, e.g. [fragment]{note}", "请至少写一个句子，例如 [片段]{说明}")));
+	if (!groups.length)
+		diagnostics.push(
+			diagnostic("annot", input.line, tr("Write at least one sentence, e.g. [fragment]{note}", "请至少写一个句子，例如 [片段]{说明}")),
+		);
 	if (diagnostics.length) return { ok: false, diagnostics };
 	return { ok: true, value: { groups }, diagnostics };
 }
@@ -166,14 +197,18 @@ function renderSentence(sentence: AnnotSentence, top: number): { readonly svg: s
 			const x1 = PAD + textWidth(rowText.slice(0, left - start), SENTENCE_SIZE);
 			const x2 = PAD + textWidth(rowText.slice(0, right - start), SENTENCE_SIZE);
 			const bracketY = baseline + 8;
-			output.push(`<path d="M ${x1} ${bracketY - 4} V ${bracketY} H ${x2} V ${bracketY - 4}" fill="none" stroke="var(--${annotation.tone})" stroke-width="1.5"/>`);
+			output.push(
+				`<path d="M ${x1} ${bracketY - 4} V ${bracketY} H ${x2} V ${bracketY - 4}" fill="none" stroke="var(--${annotation.tone})" stroke-width="1.5"/>`,
+			);
 			// A wrapped annotation retains brackets on each row and owns just one note.
 			if (!annotation.note || (annotation.end > end && sentence.text.slice(end, annotation.end).trim())) continue;
 			const lines = fitLines(annotation.note, Math.min(380, CONTENT), NOTE_SIZE);
-			const width = Math.max(...lines.map(line => textWidth(line, NOTE_SIZE)));
+			const width = Math.max(...lines.map((line) => textWidth(line, NOTE_SIZE)));
 			const x = Math.max(PAD, Math.min(x1, WIDTH - PAD - width));
 			const note: NoteLayout = { annotation, x, width, lines };
-			let track = tracks.find(candidate => candidate.notes.every(other => x + width + 12 <= other.x || other.x + other.width + 12 <= x));
+			let track = tracks.find((candidate) =>
+				candidate.notes.every((other) => x + width + 12 <= other.x || other.x + other.width + 12 <= x),
+			);
 			if (!track) {
 				track = { notes: [], height: 0 };
 				tracks.push(track);
@@ -184,7 +219,8 @@ function renderSentence(sentence: AnnotSentence, top: number): { readonly svg: s
 		let noteY = baseline + 25;
 		for (const track of tracks) {
 			for (const note of track.notes) {
-				for (const [index, line] of note.lines.entries()) output.push(svgText(line, note.x, noteY + index * 17, NOTE_SIZE, note.annotation.tone));
+				for (const [index, line] of note.lines.entries())
+					output.push(svgText(line, note.x, noteY + index * 17, NOTE_SIZE, note.annotation.tone));
 			}
 			noteY += track.height + 9;
 		}
@@ -203,7 +239,8 @@ export function renderAnnot(spec: AnnotSpec, ctx: RenderContext): Rendered {
 			const heading = group.heading ? fitLines(group.heading, headingWidth, 16) : [];
 			const right = group.rightNote ? fitLines(group.rightNote, noteWidth, 12) : [];
 			for (const [row, text] of heading.entries()) output.push(svgText(text, PAD, y + 16 + row * 23, 16, "fg", ' font-weight="600"'));
-			for (const [row, text] of right.entries()) output.push(svgText(text, WIDTH - PAD - textWidth(text, 12), y + 16 + row * 23, 12, "muted"));
+			for (const [row, text] of right.entries())
+				output.push(svgText(text, WIDTH - PAD - textWidth(text, 12), y + 16 + row * 23, 12, "muted"));
 			y += Math.max(heading.length, right.length) * 23 + 15;
 			output.push(`<path d="M ${PAD} ${y - 9} H ${WIDTH - PAD}" stroke="var(--border)"/>`);
 		}
@@ -221,7 +258,14 @@ export function renderAnnot(spec: AnnotSpec, ctx: RenderContext): Rendered {
 		}
 		const height = y + PAD;
 		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" font-family="Arial, sans-serif"><rect x="0.5" y="0.5" width="${WIDTH - 1}" height="${height - 1}" rx="10" fill="var(--surface)" stroke="var(--border)"/>${output.join("")}</svg>`;
-		const alt = [group.heading, group.rightNote, ...group.sentences.flatMap(sentence => [sentence.text, ...sentence.annotations.map(annotation => annotation.note)]), ...group.captions].filter(Boolean).join("; ");
+		const alt = [
+			group.heading,
+			group.rightNote,
+			...group.sentences.flatMap((sentence) => [sentence.text, ...sentence.annotations.map((annotation) => annotation.note)]),
+			...group.captions,
+		]
+			.filter(Boolean)
+			.join("; ");
 		return ctx.svg(`${ctx.id}.group.${index}`, svg, { w: WIDTH, h: height }, alt);
 	});
 	return { nodes, diagnostics: [] };

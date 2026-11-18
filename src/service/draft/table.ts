@@ -1,5 +1,5 @@
-import { tr } from "../../i18n";
-import { diagnostic, type DraftDiagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered } from "./contract";
+import { tr } from "../../../omomp-shared/i18n";
+import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered } from "./contract";
 import { slotParts } from "./slot";
 import { inlineSpans, type Span } from "./text";
 
@@ -44,10 +44,19 @@ export function parseTable(input: FenceInput): Parsed<TableSpec> {
 	const headers = splitRow(input.lines[0] ?? "");
 	const delimiter = input.lines[1];
 	const delimiters = delimiter === undefined ? [] : splitRow(delimiter);
-	if (delimiter === undefined || delimiters.length !== headers.length || delimiters.some(cell => !/^:?-+:?$/.test(cell))) {
+	if (delimiter === undefined || delimiters.length !== headers.length || delimiters.some((cell) => !/^:?-+:?$/.test(cell))) {
 		return {
 			ok: false,
-			diagnostics: [diagnostic("table", input.line + 1, tr("The table is missing a valid delimiter row; after the header, write the same number of columns as | --- | ---: |.", "表格缺少有效分隔行；在表头后写与列数相同的 | --- | ---: |。"))],
+			diagnostics: [
+				diagnostic(
+					"table",
+					input.line + 1,
+					tr(
+						"The table is missing a valid delimiter row; after the header, write the same number of columns as | --- | ---: |.",
+						"表格缺少有效分隔行；在表头后写与列数相同的 | --- | ---: |。",
+					),
+				),
+			],
 		};
 	}
 	const columns: TableColumn[] = headers.map((header, index) => {
@@ -60,7 +69,17 @@ export function parseTable(input: FenceInput): Parsed<TableSpec> {
 	for (let index = 2; index < input.lines.length; index++) {
 		const cells = splitRow(input.lines[index]!);
 		if (cells.length !== columns.length) {
-			diagnostics.push(diagnostic("table", input.line + index, tr(`This row has ${cells.length} cells; change it to the same ${columns.length} cells as the header.`, `此行有 ${cells.length} 格；请改为与表头相同的 ${columns.length} 格。`), "warning"));
+			diagnostics.push(
+				diagnostic(
+					"table",
+					input.line + index,
+					tr(
+						`This row has ${cells.length} cells; change it to the same ${columns.length} cells as the header.`,
+						`此行有 ${cells.length} 格；请改为与表头相同的 ${columns.length} 格。`,
+					),
+					"warning",
+				),
+			);
 			cells.length = columns.length;
 			for (let column = 0; column < columns.length; column++) cells[column] ??= "";
 		}
@@ -90,7 +109,10 @@ export function renderTable(spec: TableSpec, ctx: RenderContext): Rendered {
 	const rows = spec.rows.map((row, index) => {
 		const cells: Record<string, readonly Span[]> = {};
 		// A cell is text, not a control: a slot shows its current value, switched where it is used in prose.
-		const shown = (cell: string): string => slotParts(cell, ctx.slots).map(part => part.kind === "slot" ? ctx.slots.get(part.name)!.value : part.text).join("");
+		const shown = (cell: string): string =>
+			slotParts(cell, ctx.slots)
+				.map((part) => (part.kind === "slot" ? ctx.slots.get(part.name)!.value : part.text))
+				.join("");
 		for (let column = 0; column < cols.length; column++) cells[cols[column]!.id] = cellSpans(shown(row[column]!));
 		return { id: `${ctx.id}.row.${index}`, cells };
 	});

@@ -4,7 +4,7 @@ import { setImmediate } from "node:timers/promises";
 import { IpcConnection, ipcEndpoint } from "@oh-my-pi/pi-natives";
 import type { Connection, K1Handler } from "../src/domain/ports";
 import type { Outcome, Request } from "../src/domain/protocol";
-import { parseRequest, revealService, serveK1, ServiceRunning } from "../src/service/socket";
+import { parseRequest, revealService, ServiceRunning, serveK1 } from "../src/service/socket";
 
 const POSIX = process.platform !== "win32";
 
@@ -20,7 +20,9 @@ function tempPath(): string {
 }
 
 /** A client that writes K1 lines and hands back reply frames in arrival order. */
-async function client(endpoint: string): Promise<{ send(text: string): void; close(): void; closed: Promise<void>; next(): Promise<unknown> }> {
+async function client(
+	endpoint: string,
+): Promise<{ send(text: string): void; close(): void; closed: Promise<void>; next(): Promise<unknown> }> {
 	const connection = await IpcConnection.connect(endpoint, { framing: "lines" });
 	cleanups.push(() => connection.destroy());
 	const frames: unknown[] = [];
@@ -28,20 +30,25 @@ async function client(endpoint: string): Promise<{ send(text: string): void; clo
 	const closed = Promise.withResolvers<void>();
 	let dead = false;
 	connection.start(
-		line => {
+		(line) => {
 			if (dead) return;
 			const frame: unknown = JSON.parse(line);
 			const resolve = waiting.shift();
 			if (resolve) resolve(frame);
 			else frames.push(frame);
 		},
-		() => { dead = true; closed.resolve(); },
+		() => {
+			dead = true;
+			closed.resolve();
+		},
 	);
 	return {
 		send(text: string): void {
 			for (const line of text.split("\n")) if (line !== "") connection.send(line);
 		},
-		close(): void { connection.destroy(); },
+		close(): void {
+			connection.destroy();
+		},
 		closed: closed.promise,
 		next() {
 			if (frames.length) return Promise.resolve(frames.shift());
@@ -55,7 +62,14 @@ async function client(endpoint: string): Promise<{ send(text: string): void; clo
 /** A server whose endpoint some live process already listens on, then dies without cleaning it up. */
 async function residualEndpoint(): Promise<string> {
 	const endpoint = tempPath();
-	const child = Bun.spawn([process.execPath, "-e", `import { IpcServer } from "@oh-my-pi/pi-natives"; await IpcServer.listen(${JSON.stringify(endpoint)}, { framing: "lines" }, () => {}); console.log("ready")`], { stdout: "pipe", stderr: "inherit" });
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			"-e",
+			`import { IpcServer } from "@oh-my-pi/pi-natives"; await IpcServer.listen(${JSON.stringify(endpoint)}, { framing: "lines" }, () => {}); console.log("ready")`,
+		],
+		{ stdout: "pipe", stderr: "inherit" },
+	);
 	cleanups.push(() => child.kill("SIGKILL"));
 	const reader = child.stdout.getReader();
 	const ready = await reader.read();
@@ -66,7 +80,12 @@ async function residualEndpoint(): Promise<string> {
 	return endpoint;
 }
 
-async function start(endpoint: string, handle: K1Handler["handle"], disconnected: K1Handler["disconnected"] = () => {}, connected: K1Handler["connected"] = () => {}) {
+async function start(
+	endpoint: string,
+	handle: K1Handler["handle"],
+	disconnected: K1Handler["disconnected"] = () => {},
+	connected: K1Handler["connected"] = () => {},
+) {
 	const server = await serveK1(endpoint, { connected, disconnected, handle });
 	cleanups.push(() => server.close());
 	return server;
@@ -140,7 +159,12 @@ describe("parseRequest", () => {
 		for (const [op, args] of valid) {
 			if (typeof args !== "object" || args === null) throw new Error("invalid fixture");
 			for (const key of Object.keys(args)) {
-				if (["pane", "run", "after", "update_every", "next", "quote", "origin", "limit"].includes(key) && !(["finish_run", "snooze"].includes(op) && key === "run") && !(op === "snooze" && key === "after")) continue;
+				if (
+					["pane", "run", "after", "update_every", "next", "quote", "origin", "limit"].includes(key) &&
+					!(["finish_run", "snooze"].includes(op) && key === "run") &&
+					!(op === "snooze" && key === "after")
+				)
+					continue;
 				if (key === "block" && (op === "read" || op === "post" || op === "revisions")) continue;
 				if (key === "launch" && op === "post") continue;
 				const incomplete = { ...args };
@@ -151,36 +175,71 @@ describe("parseRequest", () => {
 	});
 
 	test("rejects identifier format and optional field type boundaries", () => {
-		for (const block of ["b0", "b01", "b-1", "b1.5", "b1x", "r1", 1, null]) expect(parseRequest("lock", { block })).toMatchObject({ code: "BadValue" });
-		for (const run of ["r0", "r01", "r-1", "r1.5", "b1", 1, null]) expect(parseRequest("read", { run })).toMatchObject({ code: "BadValue" });
-		for (const launch of ["l0", "l01", "l-1", "l1.5", "b1", 1, null]) expect(parseRequest("close", { launch })).toMatchObject({ code: "BadValue" });
+		for (const block of ["b0", "b01", "b-1", "b1.5", "b1x", "r1", 1, null])
+			expect(parseRequest("lock", { block })).toMatchObject({ code: "BadValue" });
+		for (const run of ["r0", "r01", "r-1", "r1.5", "b1", 1, null])
+			expect(parseRequest("read", { run })).toMatchObject({ code: "BadValue" });
+		for (const launch of ["l0", "l01", "l-1", "l1.5", "b1", 1, null])
+			expect(parseRequest("close", { launch })).toMatchObject({ code: "BadValue" });
 		const invalid: readonly [string, unknown][] = [
-			["hello", { session: "s", pane: 2 }], ["hello", { session: 2 }],
-			["unlock", { block: "b1", request: 2 }], ["read", { block: null }],
-			["set", { block: "b1", field: "body", value: "x" }], ["set", { block: "b1", field: "title", value: true }], ["set", { block: "b1", field: "done", value: "true" }],
-			["edit", { block: "b1", find: 1, replace: "x" }], ["edit", { block: "b1", find: "x", replace: false }],
-			["insert", { title: "x", content: { kind: "task", body: "x" }, after: "b0" }], ["insert", { title: 1, content: { kind: "task", body: "x" } }], ["insert", { title: "x", content: { kind: "task", body: 1 } }],
-			["insert", { title: "x", body: "x" }], ["insert", { title: "x", content: { kind: "design", requirement: "r", design: "d" } }], ["insert", { title: "x", content: { kind: "other" } }],
-			["write", { block: "b1", text: 1 }], ["panel", { block: "b1", panel: "a", text: "x" }], ["revisions", { after: -1 }],
-			["refetch", { targets: "x" }], ["refetch", { targets: [3] }], ["compile", { blocks: "b1" }], ["inspect", { blocks: ["b0"] }],
-			["report", { blocks: [], version: 2, result: { kind: "judge_unavailable" } }], ["report", { blocks: [], version: "v", result: { kind: "answers", answers: { missing: "0" } } }],
-			["report", { blocks: [], version: "v", result: { kind: "answers", answers: [] } }], ["report", { blocks: [], version: "v", result: { kind: "other" } }],
-			["bind", { launch: "l1", agent: 3 }], ["start_run", { name: false }],
-			["post", { run: "r1", kind: "other", text: "x" }], ["post", { run: "r1", kind: "update", text: "x", origin: "coordinator" }],
-			["post", { run: "r1", kind: "result", text: "x", next: 1 }], ["post", { run: "r1", kind: "update", text: "x", quote: 3 }],
-			["post", { run: "r1", kind: "update", text: "x", launch: "l0" }], ["post", { run: "r1", kind: "update", text: "x", block: "b0" }],
+			["hello", { session: "s", pane: 2 }],
+			["hello", { session: 2 }],
+			["unlock", { block: "b1", request: 2 }],
+			["read", { block: null }],
+			["set", { block: "b1", field: "body", value: "x" }],
+			["set", { block: "b1", field: "title", value: true }],
+			["set", { block: "b1", field: "done", value: "true" }],
+			["edit", { block: "b1", find: 1, replace: "x" }],
+			["edit", { block: "b1", find: "x", replace: false }],
+			["insert", { title: "x", content: { kind: "task", body: "x" }, after: "b0" }],
+			["insert", { title: 1, content: { kind: "task", body: "x" } }],
+			["insert", { title: "x", content: { kind: "task", body: 1 } }],
+			["insert", { title: "x", body: "x" }],
+			["insert", { title: "x", content: { kind: "design", requirement: "r", design: "d" } }],
+			["insert", { title: "x", content: { kind: "other" } }],
+			["write", { block: "b1", text: 1 }],
+			["panel", { block: "b1", panel: "a", text: "x" }],
+			["revisions", { after: -1 }],
+			["refetch", { targets: "x" }],
+			["refetch", { targets: [3] }],
+			["compile", { blocks: "b1" }],
+			["inspect", { blocks: ["b0"] }],
+			["report", { blocks: [], version: 2, result: { kind: "judge_unavailable" } }],
+			["report", { blocks: [], version: "v", result: { kind: "answers", answers: { missing: "0" } } }],
+			["report", { blocks: [], version: "v", result: { kind: "answers", answers: [] } }],
+			["report", { blocks: [], version: "v", result: { kind: "other" } }],
+			["bind", { launch: "l1", agent: 3 }],
+			["start_run", { name: false }],
+			["post", { run: "r1", kind: "other", text: "x" }],
+			["post", { run: "r1", kind: "update", text: "x", origin: "coordinator" }],
+			["post", { run: "r1", kind: "result", text: "x", next: 1 }],
+			["post", { run: "r1", kind: "update", text: "x", quote: 3 }],
+			["post", { run: "r1", kind: "update", text: "x", launch: "l0" }],
+			["post", { run: "r1", kind: "update", text: "x", block: "b0" }],
 			["ack", { event: 1 }],
-			["set", { block: "b1", field: "agent", value: "   " }], ["set", { block: "b1", field: "agent", value: 3 }], ["set", { block: "b1", field: "isolated", value: "true" }],
-			["insert", { title: "x", content: { kind: "task", body: "x", agent: " " } }], ["insert", { title: "x", content: { kind: "task", body: "x", isolated: "yes" } }],
-			["insert", { title: "x", content: { kind: "design", design: "d", agent: "task:mid" } }], ["insert", { title: "x", content: { kind: "design", design: "d", isolated: true } }],
-			["move", { block: "b2" }], ["move", { block: "b2", after: "b0" }], ["move", { block: "b2", after: 1 }],
+			["set", { block: "b1", field: "agent", value: "   " }],
+			["set", { block: "b1", field: "agent", value: 3 }],
+			["set", { block: "b1", field: "isolated", value: "true" }],
+			["insert", { title: "x", content: { kind: "task", body: "x", agent: " " } }],
+			["insert", { title: "x", content: { kind: "task", body: "x", isolated: "yes" } }],
+			["insert", { title: "x", content: { kind: "design", design: "d", agent: "task:mid" } }],
+			["insert", { title: "x", content: { kind: "design", design: "d", isolated: true } }],
+			["move", { block: "b2" }],
+			["move", { block: "b2", after: "b0" }],
+			["move", { block: "b2", after: 1 }],
 		];
 		for (const [op, args] of invalid) expect(parseRequest(op, args)).toMatchObject({ code: "BadValue" });
 	});
 
 	test("trims a task block's agent name at the boundary", () => {
-		expect(parseRequest("set", { block: "b1", field: "agent", value: " task:mid " })).toEqual({ op: "set", args: { block: "b1", field: "agent", value: "task:mid" } });
-		expect(parseRequest("insert", { title: "x", content: { kind: "task", body: "x", agent: "\ttask:low\n" } })).toEqual({ op: "insert", args: { title: "x", content: { kind: "task", body: "x", agent: "task:low" } } });
+		expect(parseRequest("set", { block: "b1", field: "agent", value: " task:mid " })).toEqual({
+			op: "set",
+			args: { block: "b1", field: "agent", value: "task:mid" },
+		});
+		expect(parseRequest("insert", { title: "x", content: { kind: "task", body: "x", agent: "\ttask:low\n" } })).toEqual({
+			op: "insert",
+			args: { title: "x", content: { kind: "task", body: "x", agent: "task:low" } },
+		});
 	});
 
 	test("requires positive safe integer reminder durations", () => {
@@ -198,7 +257,9 @@ describe("parseRequest", () => {
 		expect(parseRequest("launch", { run: "r1", blocks: [] })).toEqual({ op: "launch", args: { run: "r1", blocks: [] } });
 		expect(parseRequest("read", { block: "b999" })).toMatchObject({ op: "read" });
 		expect(parseRequest("post", { run: "r999", kind: "retrospective", text: "x" })).toMatchObject({ op: "post" });
-		expect(parseRequest("report", { blocks: [], version: "v", result: { kind: "answers", answers: { unknown: 2 } } })).toMatchObject({ op: "report" });
+		expect(parseRequest("report", { blocks: [], version: "v", result: { kind: "answers", answers: { unknown: 2 } } })).toMatchObject({
+			op: "report",
+		});
 	});
 });
 
@@ -210,7 +271,10 @@ describe("serveK1 over the host IPC endpoint", () => {
 		const calls: string[] = [];
 		await start(path, async (_conn, id) => {
 			calls.push(id);
-			if (id === "first") { entered.resolve(); await release.promise; }
+			if (id === "first") {
+				entered.resolve();
+				await release.promise;
+			}
 			return { ok: true, result: id };
 		});
 		const c = await client(path);
@@ -248,10 +312,20 @@ describe("serveK1 over the host IPC endpoint", () => {
 		const disconnected = Promise.withResolvers<Connection>();
 		const calls: string[] = [];
 		const closed: Connection[] = [];
-		await start(path, async (_conn, id) => {
-			calls.push(id); entered.resolve(); await release.promise; finished.resolve();
-			return { ok: true, result: id };
-		}, conn => { closed.push(conn); disconnected.resolve(conn); });
+		await start(
+			path,
+			async (_conn, id) => {
+				calls.push(id);
+				entered.resolve();
+				await release.promise;
+				finished.resolve();
+				return { ok: true, result: id };
+			},
+			(conn) => {
+				closed.push(conn);
+				disconnected.resolve(conn);
+			},
+		);
 		const c = await client(path);
 		c.send('{"id":"first","op":"runs","args":{}}\n{"id":"second","op":"runs","args":{}}\n');
 		await entered.promise;
@@ -272,7 +346,14 @@ describe("serveK1 over the host IPC endpoint", () => {
 		// Each connection reaches the handler on its own schedule, after the client's connect returns.
 		const opened = Promise.withResolvers<void>();
 		let openedCount = 0;
-		const server = await start(path, async () => ({ ok: true, result: null }), conn => closed.push(conn.id), () => { if (++openedCount === 2) opened.resolve(); });
+		const server = await start(
+			path,
+			async () => ({ ok: true, result: null }),
+			(conn) => closed.push(conn.id),
+			() => {
+				if (++openedCount === 2) opened.resolve();
+			},
+		);
 		const a = await client(path);
 		const b = await client(path);
 		await opened.promise;
@@ -286,10 +367,16 @@ describe("serveK1 over the host IPC endpoint", () => {
 	});
 
 	test("handles unidentifiable frames and unexpected handler failures as disconnects", async () => {
-		for (const frame of ['not-json\n', '{"id":1,"op":"runs","args":{}}\n', '{"id":"throw","op":"runs","args":{}}\n']) {
+		for (const frame of ["not-json\n", '{"id":1,"op":"runs","args":{}}\n', '{"id":"throw","op":"runs","args":{}}\n']) {
 			const path = tempPath();
 			const disconnected = Promise.withResolvers<void>();
-			await start(path, async () => { throw new Error("unexpected failure"); }, () => disconnected.resolve());
+			await start(
+				path,
+				async () => {
+					throw new Error("unexpected failure");
+				},
+				() => disconnected.resolve(),
+			);
 			const c = await client(path);
 			c.send(frame);
 			await Promise.all([disconnected.promise, c.closed]);
@@ -308,7 +395,10 @@ describe("serveK1 over the host IPC endpoint", () => {
 	test("handles a request frame far above the host's write high-water mark", async () => {
 		const path = tempPath();
 		const requests: Request[] = [];
-		await start(path, async (_conn, _id, request) => { requests.push(request); return { ok: true, result: request.args }; });
+		await start(path, async (_conn, _id, request) => {
+			requests.push(request);
+			return { ok: true, result: request.args };
+		});
 		const c = await client(path);
 		const text = `你好🌟${"x".repeat(5 * 1024 * 1024)}`;
 		c.send(`${JSON.stringify({ id: "big", op: "write", args: { block: "b1", text } })}\n{"id":"after","op":"runs","args":{}}\n`);
@@ -323,7 +413,7 @@ describe("serveK1 over the host IPC endpoint", () => {
 	test("delivers large event frames without losing bytes under backpressure", async () => {
 		const path = tempPath();
 		const name = "状态".repeat(300_000);
-		await start(path, async conn => {
+		await start(path, async (conn) => {
 			conn.send({ event: "revision_requested", data: { block: "b1", revision: 1, ...{ padding: name } } });
 			conn.send({ event: "status_changed", data: { run: "r1", block: "b1", status: "todo" } });
 			return { ok: true, result: "done" };
@@ -359,11 +449,11 @@ describe("serveK1 over the host IPC endpoint", () => {
 			start(path, async () => ({ ok: true, result: "winner-0" })),
 			start(path, async () => ({ ok: true, result: "winner-1" })),
 		]);
-		expect(claims.filter(claim => claim.status === "fulfilled")).toHaveLength(1);
-		const rejected = claims.filter(claim => claim.status === "rejected");
+		expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
+		const rejected = claims.filter((claim) => claim.status === "rejected");
 		expect(rejected).toHaveLength(1);
 		for (const claim of rejected) expect(claim.reason).toBeInstanceOf(ServiceRunning);
-		const winner = claims.findIndex(claim => claim.status === "fulfilled");
+		const winner = claims.findIndex((claim) => claim.status === "fulfilled");
 		const c = await client(path);
 		c.send('{"id":"race","op":"runs","args":{}}\n');
 		expect(await c.next()).toEqual({ id: "race", ok: true, result: `winner-${winner}` });
@@ -373,7 +463,15 @@ describe("serveK1 over the host IPC endpoint", () => {
 		if (!POSIX) return;
 		const path = tempPath();
 		writeFileSync(path, "keep");
-		await expect(serveK1(path, { connected() {}, disconnected() {}, async handle() { return { ok: true, result: null }; } })).rejects.toBeInstanceOf(ServiceRunning);
+		await expect(
+			serveK1(path, {
+				connected() {},
+				disconnected() {},
+				async handle() {
+					return { ok: true, result: null };
+				},
+			}),
+		).rejects.toBeInstanceOf(ServiceRunning);
 		expect(readFileSync(path, "utf8")).toBe("keep");
 	});
 });
@@ -410,7 +508,7 @@ describe("revealService over the host IPC endpoint", () => {
 
 	test("returns failed when the service closes without replying", async () => {
 		const path = tempPath();
-		await start(path, async conn => {
+		await start(path, async (conn) => {
 			conn.close();
 			return { ok: true, result: null };
 		});

@@ -1,8 +1,9 @@
-import { outlinedText, type CompileError, type CompileResult, type Source } from "../domain/model";
+import { tr } from "../../omomp-shared/i18n";
+import { type CompileError, type CompileResult, outlinedText, type Source } from "../domain/model";
 import type { ChecksModule } from "../domain/ports";
-import { tr } from "../i18n";
 import { draftDiagnostics } from "./draft/components";
 import { outlineProblems } from "./draft/outline";
+
 function unreachable(value: never): never {
 	throw new Error(`Unexpected checks variant: ${JSON.stringify(value)}`);
 }
@@ -55,24 +56,32 @@ function questions(): ChecksModule["questions"] {
 		{
 			id: "missing",
 			type: "bool",
-			instructions:
-				tr("`compiled` is the entire prompt a subagent receives; it can see nothing else. Does `compiled` mention material (logs, discussion, files, earlier results) whose content is absent from `compiled`?", "`compiled` 是子代理收到的完整提示；它看不到其他内容。`compiled` 是否提到了日志、讨论、文件或早先结果等材料，而这些材料的内容并不在 `compiled` 中？"),
+			instructions: tr(
+				"`compiled` is the entire prompt a subagent receives; it can see nothing else. Does `compiled` mention material (logs, discussion, files, earlier results) whose content is absent from `compiled`?",
+				"`compiled` 是子代理收到的完整提示；它看不到其他内容。`compiled` 是否提到了日志、讨论、文件或早先结果等材料，而这些材料的内容并不在 `compiled` 中？",
+			),
 			threshold: 0.5,
 		},
 	];
 }
 
 export const checks: ChecksModule = {
-	get questions() { return questions(); },
+	get questions() {
+		return questions();
+	},
 	findings({ compiled, expansions, content, render }) {
-		const common = { compile: compiled.kind === "Err", render_error: render.blockError || render.documentError, render_pending: render.pendingOverdue };
+		const common = {
+			compile: compiled.kind === "Err",
+			render_error: render.blockError || render.documentError,
+			render_pending: render.pendingOverdue,
+		};
 		// Task bodies and designs are drawn by the same component renderer, so both are checked for its syntax.
 		const text = content.kind === "task" ? content.body : content.design;
 		const outlined = outlinedText(content);
 		return {
 			...common,
-			empty_expansion: content.kind === "task" && expansions.some(expansion => expansion.kind === "Ok" && expansion.text.trim() === ""),
-			draft: render.draftErrors > 0 || draftDiagnostics(text).some(found => found.severity === "error"),
+			empty_expansion: content.kind === "task" && expansions.some((expansion) => expansion.kind === "Ok" && expansion.text.trim() === ""),
+			draft: render.draftErrors > 0 || draftDiagnostics(text).some((found) => found.severity === "error"),
 			outline: outlined !== null && outlineProblems(outlined).length > 0,
 		};
 	},
@@ -82,7 +91,7 @@ export const checks: ChecksModule = {
 		// distinguish a missing block (null) from a present, empty block ("").
 		const normalized = [
 			[...closure].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
-			results.map(result => JSON.stringify([result.text, result.at, result.seq, result.origin, result.launch])).sort(),
+			results.map((result) => JSON.stringify([result.text, result.at, result.seq, result.origin, result.launch])).sort(),
 			normalizedCompile(compiled),
 		];
 		return new Bun.CryptoHasher("sha256").update(JSON.stringify(normalized)).digest("hex");
@@ -98,7 +107,7 @@ export const checks: ChecksModule = {
 				const table = questions();
 				return (
 					ids.length === table.length &&
-					table.every(question => {
+					table.every((question) => {
 						const value = answers[question.id];
 						return ids.includes(question.id) && typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 					})

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { IpcConnection } from "@oh-my-pi/pi-natives";
-import { tr } from "../i18n";
+import { tr } from "../../omomp-shared/i18n";
 import type { EventPayload, ProtocolError, Request, ServerFrame } from "../domain/protocol";
 
 export type ClientError = ProtocolError | { readonly code: "NoService" | "Disconnected" | "StartFailed"; readonly message: string };
-export type Reply = { readonly id: string; readonly ok: true; readonly result: unknown; readonly raw?: string } | { readonly id: string; readonly ok: false; readonly error: ClientError };
+export type Reply =
+	| { readonly id: string; readonly ok: true; readonly result: unknown; readonly raw?: string }
+	| { readonly id: string; readonly ok: false; readonly error: ClientError };
 type Pending = { readonly resolve: (reply: Reply) => void };
 type Deferred = { readonly promise: Promise<Reply>; readonly resolve: (reply: Reply) => void };
 type Link = { readonly connection: IpcConnection; readonly ready: Deferred; readonly pending: Map<string, Pending>; dead: boolean };
@@ -37,18 +39,30 @@ export class K1Client {
 		private readonly onEvent: (event: EventPayload) => void | Promise<void>,
 	) {}
 
-	get connected(): boolean { return this.state.kind === "connected"; }
-	get hello(): unknown { return this.state.kind === "connected" ? this.state.hello : undefined; }
+	get connected(): boolean {
+		return this.state.kind === "connected";
+	}
+	get hello(): unknown {
+		return this.state.kind === "connected" ? this.state.hello : undefined;
+	}
 
 	async connect(): Promise<Reply> {
 		switch (this.state.kind) {
-			case "closed": return this.failure("", "Disconnected");
-			case "connected": return { id: "", ok: true, result: this.state.hello };
-			case "dialing": return this.state.ready.promise;
-			case "connecting": return this.state.link.ready.promise;
-			case "disconnected": break;
+			case "closed":
+				return this.failure("", "Disconnected");
+			case "connected":
+				return { id: "", ok: true, result: this.state.hello };
+			case "dialing":
+				return this.state.ready.promise;
+			case "connecting":
+				return this.state.link.ready.promise;
+			case "disconnected":
+				break;
 		}
-		if (this.reconnect !== undefined) { clearTimeout(this.reconnect); this.reconnect = undefined; }
+		if (this.reconnect !== undefined) {
+			clearTimeout(this.reconnect);
+			this.reconnect = undefined;
+		}
 		const ready: Deferred = Promise.withResolvers<Reply>();
 		this.state = { kind: "dialing", ready };
 		let connection: IpcConnection;
@@ -72,7 +86,10 @@ export class K1Client {
 			return ready.promise;
 		}
 		this.state = { kind: "connecting", link };
-		connection.start(line => this.receive(link, line), () => this.disconnect(link));
+		connection.start(
+			(line) => this.receive(link, line),
+			() => this.disconnect(link),
+		);
 		const reply = await this.sendOn(link, { op: "hello", args: this.helloArgs });
 		if (this.owns(link) && reply.ok) this.state = { kind: "connected", link, hello: reply.result };
 		else if (this.owns(link)) connection.destroy();
@@ -88,7 +105,10 @@ export class K1Client {
 	}
 
 	close(): void {
-		if (this.reconnect !== undefined) { clearTimeout(this.reconnect); this.reconnect = undefined; }
+		if (this.reconnect !== undefined) {
+			clearTimeout(this.reconnect);
+			this.reconnect = undefined;
+		}
 		const state = this.state;
 		this.state = { kind: "closed" };
 		if (state.kind === "connecting" || state.kind === "connected") state.link.connection.destroy();
@@ -99,7 +119,17 @@ export class K1Client {
 		return (this.state.kind === "connecting" || this.state.kind === "connected") && this.state.link === link;
 	}
 	private failure(id: string, code: "NoService" | "Disconnected"): Reply {
-		return { id, ok: false, error: { code, message: code === "NoService" ? tr("No Playbook document service is listening at this endpoint", "此端点没有 Playbook 文档服务在监听") : tr("Connection ended before a response; the operation may have been applied", "连接在收到响应前结束；操作可能已经应用") } };
+		return {
+			id,
+			ok: false,
+			error: {
+				code,
+				message:
+					code === "NoService"
+						? tr("No Playbook document service is listening at this endpoint", "此端点没有 Playbook 文档服务在监听")
+						: tr("Connection ended before a response; the operation may have been applied", "连接在收到响应前结束；操作可能已经应用"),
+			},
+		};
 	}
 	/** Frames arrive in order; a frame the parser rejects ends the connection like any other framing error. */
 	private receive(link: Link, line: string): void {
@@ -111,7 +141,10 @@ export class K1Client {
 				return;
 			}
 			const pending = link.pending.get(frame.id);
-			if (pending) { link.pending.delete(frame.id); pending.resolve(frame.ok ? { ...frame, raw: rawResult(line, frame.id) } : frame); }
+			if (pending) {
+				link.pending.delete(frame.id);
+				pending.resolve(frame.ok ? { ...frame, raw: rawResult(line, frame.id) } : frame);
+			}
 		} catch {
 			link.dead = true;
 			link.connection.destroy();
@@ -140,7 +173,10 @@ export class K1Client {
 	}
 	private scheduleReconnect(): void {
 		if (this.reconnect !== undefined || this.state.kind === "closed") return;
-		this.reconnect = setTimeout(() => { this.reconnect = undefined; void this.connect(); }, 2_000);
+		this.reconnect = setTimeout(() => {
+			this.reconnect = undefined;
+			void this.connect();
+		}, 2_000);
 		this.reconnect.unref();
 	}
 }
