@@ -1,7 +1,7 @@
-import { tr } from "../../i18n";
-import { diagnostic, type DraftDiagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered, type Span } from "./contract";
-import { inlineText } from "./markdown";
+import { tr } from "../../../omomp-shared/i18n";
 import type { TspNode } from "../tsp-types";
+import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered, type Span } from "./contract";
+import { inlineText } from "./markdown";
 
 export interface KvSpec {
 	readonly cols: number;
@@ -28,7 +28,9 @@ export function parseKv(input: FenceInput): Parsed<KvSpec> {
 	if (columnValue !== undefined) {
 		const count = Number(columnValue);
 		if (!Number.isFinite(count) || !Number.isInteger(count)) {
-			diagnostics.push(diagnostic("kv", Math.max(1, input.line - 1), tr("Column count must be an integer; write cols=2.", "列数须为整数；请写 cols=2。")));
+			diagnostics.push(
+				diagnostic("kv", Math.max(1, input.line - 1), tr("Column count must be an integer; write cols=2.", "列数须为整数；请写 cols=2。")),
+			);
 		} else cols = Math.max(1, Math.min(count || 2, 6));
 	}
 
@@ -41,7 +43,9 @@ export function parseKv(input: FenceInput): Parsed<KvSpec> {
 		const body = kind === "wide" ? text.slice(1).trim() : text;
 		const match = /^([^:：]+)[:：]\s*(.*)$/.exec(body);
 		if (!match) {
-			diagnostics.push(diagnostic("kv", input.line + index, tr("A key or colon is missing; write key: value.", "缺少键名或冒号；请写 key: value。")));
+			diagnostics.push(
+				diagnostic("kv", input.line + index, tr("A key or colon is missing; write key: value.", "缺少键名或冒号；请写 key: value。")),
+			);
 			continue;
 		}
 		const key = match[1]!.trim();
@@ -50,13 +54,18 @@ export function parseKv(input: FenceInput): Parsed<KvSpec> {
 		const keyAt = raw.indexOf(key);
 		const valueAt = value ? raw.lastIndexOf(value) : raw.length;
 		items.push({
-			kind, key, value,
+			kind,
+			key,
+			value,
 			keySpan: { start: lineStart + keyAt, end: lineStart + keyAt + key.length },
 			valueSpan: { start: lineStart + valueAt, end: lineStart + valueAt + value.length },
 		});
 	}
 	if (items.length === 0) {
-		if (diagnostics.length === 0) diagnostics.push(diagnostic("kv", input.line, tr("At least one item is required; write key: value.", "至少需要一项；请写 key: value。")));
+		if (diagnostics.length === 0)
+			diagnostics.push(
+				diagnostic("kv", input.line, tr("At least one item is required; write key: value.", "至少需要一项；请写 key: value。")),
+			);
 		return { ok: false, diagnostics };
 	}
 	return { ok: true, value: { cols, items }, diagnostics };
@@ -67,9 +76,18 @@ export function renderKv(spec: KvSpec, ctx: RenderContext): Rendered {
 	const cells = spec.items.flatMap((item, index): TspNode[] => {
 		const id = `${ctx.id}.item.${index}`;
 		return [
-			ctx.edit.text(`${id}.key`, item.keySpan, false, { id: `${id}.key.view`, k: "el", p: { tag: "span", class: "pb-kv-key", text: item.key } }),
+			ctx.edit.text(`${id}.key`, item.keySpan, false, {
+				id: `${id}.key.view`,
+				k: "el",
+				p: { tag: "span", class: "pb-kv-key", text: item.key },
+			}),
 			ctx.edit.text(`${id}.value`, item.valueSpan, false, inlineText(ctx, `${id}.value.view`, item.value, "span")),
-		].map((node, position) => ({ id: `${id}.${position ? "v" : "k"}`, k: "el", p: { tag: "div", class: position ? `pb-kv-v${item.kind === "wide" ? " pb-kv-wide" : ""}` : "pb-kv-k" }, c: [node] }));
+		].map((node, position) => ({
+			id: `${id}.${position ? "v" : "k"}`,
+			k: "el",
+			p: { tag: "div", class: position ? `pb-kv-v${item.kind === "wide" ? " pb-kv-wide" : ""}` : "pb-kv-k" },
+			c: [node],
+		}));
 	});
 	return { nodes: [{ id: `${ctx.id}.grid`, k: "el", p: { tag: "div", class: "pb-kv" }, c: cells }], diagnostics: [] };
 }

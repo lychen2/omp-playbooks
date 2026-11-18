@@ -6,16 +6,29 @@ import type { FrameOp, TspEvent, TspInput, TspSession } from "../src/service/tsp
 const ESC = "\x1b";
 const ST = `${ESC}\\`;
 
-beforeEach(() => { vi.useFakeTimers(); });
-afterEach(() => { vi.useRealTimers(); });
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 class FakeInput extends ReadStream {
 	override isTTY = true as const;
 	readonly rawChanges: boolean[] = [];
-	constructor() { super(0); }
-	override setRawMode(mode: boolean): this { this.rawChanges.push(mode); return this; }
-	override resume(): this { return this; }
-	feed(bytes: string | Buffer): void { this.emit("data", bytes); }
+	constructor() {
+		super(0);
+	}
+	override setRawMode(mode: boolean): this {
+		this.rawChanges.push(mode);
+		return this;
+	}
+	override resume(): this {
+		return this;
+	}
+	feed(bytes: string | Buffer): void {
+		this.emit("data", bytes);
+	}
 }
 
 interface Harness {
@@ -29,8 +42,8 @@ function harness(): Harness {
 	const input = new FakeInput();
 	const output: string[] = [];
 	const received: TspInput[] = [];
-	const session = createTspSession(bytes => output.push(bytes), input);
-	session.start("transport-test", value => received.push(value));
+	const session = createTspSession((bytes) => output.push(bytes), input);
+	session.start("transport-test", (value) => received.push(value));
 	session.open("form", "Transport test", ".button { color: red }");
 	return { input, output, received, session };
 }
@@ -65,24 +78,32 @@ describe("TSP wire and input", () => {
 	test("separates byte-fragmented APC and DA from ordinary UTF8 and escape keys", () => {
 		const { input, received } = harness();
 		const action: TspEvent = { ev: "action", mods: [], id: "a.button", act: "launch" };
-		const wire = Buffer.from(`好${ESC}[A${ESC}_tsp;r;{"r":"hello","dark":false}${ST}x${ESC}[?62;4c${ESC}_tsp;e;${JSON.stringify(action)}${ST}尾${ESC}[200~paste${ESC}[201~`);
+		const wire = Buffer.from(
+			`好${ESC}[A${ESC}_tsp;r;{"r":"hello","dark":false}${ST}x${ESC}[?62;4c${ESC}_tsp;e;${JSON.stringify(action)}${ST}尾${ESC}[200~paste${ESC}[201~`,
+		);
 		for (const byte of wire) input.feed(Buffer.from([byte]));
-		expect(received.filter(value => value.kind !== "keys")).toEqual([
-			{ kind: "hello", dark: false }, { kind: "event", event: action },
+		expect(received.filter((value) => value.kind !== "keys")).toEqual([
+			{ kind: "hello", dark: false },
+			{ kind: "event", event: action },
 		]);
-		expect(received.flatMap(value => value.kind === "keys" ? [value.bytes] : []).join("")).toBe(`好${ESC}[Ax尾${ESC}[200~paste${ESC}[201~`);
+		expect(received.flatMap((value) => (value.kind === "keys" ? [value.bytes] : [])).join("")).toBe(
+			`好${ESC}[Ax尾${ESC}[200~paste${ESC}[201~`,
+		);
 		input.emit("end");
 	});
 
 	test("reads byte-fragmented OSC 877 messages, as Tern frames them through a Windows ConPTY", () => {
 		const { input, received } = harness();
 		const action: TspEvent = { ev: "action", mods: [], id: "a.button", act: "launch" };
-		const wire = Buffer.from(`好${ESC}]877;tsp;r;{"r":"hello","dark":true}${ST}x${ESC}[?62;52;c${ESC}]877;tsp;e;${JSON.stringify(action)}\x07尾`);
+		const wire = Buffer.from(
+			`好${ESC}]877;tsp;r;{"r":"hello","dark":true}${ST}x${ESC}[?62;52;c${ESC}]877;tsp;e;${JSON.stringify(action)}\x07尾`,
+		);
 		for (const byte of wire) input.feed(Buffer.from([byte]));
-		expect(received.filter(value => value.kind !== "keys")).toEqual([
-			{ kind: "hello", dark: true }, { kind: "event", event: action },
+		expect(received.filter((value) => value.kind !== "keys")).toEqual([
+			{ kind: "hello", dark: true },
+			{ kind: "event", event: action },
 		]);
-		expect(received.flatMap(value => value.kind === "keys" ? [value.bytes] : []).join("")).toBe("好x尾");
+		expect(received.flatMap((value) => (value.kind === "keys" ? [value.bytes] : [])).join("")).toBe("好x尾");
 		input.emit("end");
 	});
 
@@ -117,12 +138,15 @@ describe("TSP wire and input", () => {
 	test("parses all contract events, retaining unknown and malformed payloads as other", () => {
 		const { input, received } = harness();
 		const bodies: readonly TspEvent[] = [
-			{ ev: "ack", s: 1 }, { ev: "error", s: 1, op: 0, msg: "bad" },
-			{ ev: "theme", dark: true }, { ev: "focus", id: "a.title" },
+			{ ev: "ack", s: 1 },
+			{ ev: "error", s: 1, op: 0, msg: "bad" },
+			{ ev: "theme", dark: true },
+			{ ev: "focus", id: "a.title" },
 			{ ev: "action", mods: [], id: "a.button", act: "run" },
 			{ ev: "change", id: "a.done", checked: false, value: "no", text: "text" },
 			{ ev: "edit", id: "a.body", from: 0, to: 1, text: "好", cursor: 1, len: 2 },
-			{ ev: "undo", id: "a.body" }, { ev: "toggle", id: "a.ref", collapsed: true, key: "ref" },
+			{ ev: "undo", id: "a.body" },
+			{ ev: "toggle", id: "a.ref", collapsed: true, key: "ref" },
 		];
 		for (const body of bodies) event(input, body);
 		const unknown = { ev: "resize", cols: 80 };
@@ -131,9 +155,12 @@ describe("TSP wire and input", () => {
 		event(input, malformed);
 		input.feed(`${ESC}_tsp;e;not-json${ST}`);
 		const expected: TspEvent[] = [
-			...bodies, { ev: "other", body: unknown }, { ev: "other", body: malformed }, { ev: "other", body: "not-json" },
+			...bodies,
+			{ ev: "other", body: unknown },
+			{ ev: "other", body: malformed },
+			{ ev: "other", body: "not-json" },
 		];
-		expect(received.flatMap(value => value.kind === "event" ? [value.event] : [])).toEqual(expected);
+		expect(received.flatMap((value) => (value.kind === "event" ? [value.event] : []))).toEqual(expected);
 		input.emit("end");
 	});
 
@@ -148,6 +175,7 @@ describe("TSP wire and input", () => {
 		expect(chunks.length).toBeGreaterThan(1);
 		let joined = "";
 		for (const [i, chunk] of chunks.entries()) {
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: the frame protocol on the wire is delimited by ESC
 			const match = /^\x1b_tsp;f;c=(p\d+);(m=1;)?([\s\S]*)\x1b\\$/.exec(chunk);
 			expect(match).not.toBeNull();
 			const body = match![3]!;
@@ -168,7 +196,13 @@ describe("TSP render facts", () => {
 		const a = session.frame([add], ["a"]);
 		event(input, { ev: "error", s: a, msg: "whole frame rejected" });
 		expect(session.status("a").blockError).toBe(true);
-		const both = session.frame([["set", "a.card", { head: "A" }], ["set", "b.card", { head: "B" }]], ["a", "b"]);
+		const both = session.frame(
+			[
+				["set", "a.card", { head: "A" }],
+				["set", "b.card", { head: "B" }],
+			],
+			["a", "b"],
+		);
 		expect(session.status("a").blockError).toBe(false);
 		event(input, { ev: "error", s: a, op: 0 });
 		expect(session.status("a").blockError).toBe(false);
@@ -216,7 +250,7 @@ describe("TSP render facts", () => {
 	test("overdue notification uses latest block frame and cumulative acknowledgements", () => {
 		const { input, session } = harness();
 		const changes: string[][] = [];
-		session.onStatusChange(blocks => changes.push([...blocks]));
+		session.onStatusChange((blocks) => changes.push([...blocks]));
 		session.frame([add], ["a"]);
 		session.frame([["set", "b.card", { head: "B" }]], ["b"]);
 		vi.advanceTimersByTime(1_100);

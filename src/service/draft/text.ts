@@ -31,7 +31,9 @@ export function inlineSpans(text: string, base = ""): Span[] {
 
 /** Plain text of inline Markdown (markers removed), for SVG labels and alt text. */
 export function plainText(text: string): string {
-	return inlineSpans(text).map(span => span.t).join("");
+	return inlineSpans(text)
+		.map((span) => span.t)
+		.join("");
 }
 
 /** Escape text for SVG/XML content and attribute values. */
@@ -40,7 +42,17 @@ export function escapeXml(text: string): string {
 }
 
 function wide(code: number): boolean {
-	return (code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe30 && code <= 0xfe4f) || (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6) || (code >= 0x1f300 && code <= 0x1faff) || (code >= 0x20000 && code <= 0x3fffd);
+	return (
+		(code >= 0x1100 && code <= 0x115f) ||
+		(code >= 0x2e80 && code <= 0xa4cf) ||
+		(code >= 0xac00 && code <= 0xd7a3) ||
+		(code >= 0xf900 && code <= 0xfaff) ||
+		(code >= 0xfe30 && code <= 0xfe4f) ||
+		(code >= 0xff00 && code <= 0xff60) ||
+		(code >= 0xffe0 && code <= 0xffe6) ||
+		(code >= 0x1f300 && code <= 0x1faff) ||
+		(code >= 0x20000 && code <= 0x3fffd)
+	);
 }
 
 /** Estimated width of `text` in SVG user units at `fontSize` (sans-serif): wide CJK glyphs take a full em, others about 0.6 em. */

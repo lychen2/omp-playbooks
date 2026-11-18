@@ -2,8 +2,9 @@
 // endpoint of the omp session there says whether omp-playbooks is loaded and makes it connect. The service
 // itself becomes "online" only through that session's K1 hello, as with playbook_open.
 import { IpcConnection } from "@oh-my-pi/pi-natives";
-import { tr, withLanguage } from "../i18n";
-import { paneEndpoint, type PaneReply, type PaneRequest } from "../domain/protocol";
+import { tr } from "../../omomp-shared/i18n";
+import { type PaneReply, type PaneRequest, paneEndpoint } from "../domain/protocol";
+import { withLanguage } from "../i18n";
 import { listPanes, movePane, splitPane, type TernPane } from "./panes";
 
 export interface OmpPane extends TernPane {
@@ -20,8 +21,16 @@ function parseReply(line: string): PaneReply | null {
 	try {
 		const value: unknown = JSON.parse(line);
 		if (typeof value !== "object" || value === null || !("ok" in value)) return null;
-		if (value.ok === true && "session" in value && typeof value.session === "string" && "cwd" in value && typeof value.cwd === "string") return { ok: true, session: value.session, cwd: value.cwd };
-		if (value.ok === false && "error" in value && typeof value.error === "object" && value.error !== null && "code" in value.error && "message" in value.error) {
+		if (value.ok === true && "session" in value && typeof value.session === "string" && "cwd" in value && typeof value.cwd === "string")
+			return { ok: true, session: value.session, cwd: value.cwd };
+		if (
+			value.ok === false &&
+			"error" in value &&
+			typeof value.error === "object" &&
+			value.error !== null &&
+			"code" in value.error &&
+			"message" in value.error
+		) {
 			return { ok: false, error: { code: String(value.error.code), message: String(value.error.message) } };
 		}
 		return null;
@@ -43,7 +52,11 @@ async function ask(pane: string, request: PaneRequest, timeoutMs: number): Promi
 		resolve(reply);
 	};
 	const fail = (code: string, message: string): void => finish({ ok: false, error: { code, message } });
-	const timer = setTimeout(() => fail("Timeout", tr(`Pane ${pane} did not respond within ${timeoutMs / 1000} s`, `面板 ${pane} 在 ${timeoutMs / 1000} 秒内没有响应`)), timeoutMs);
+	const timer = setTimeout(
+		() =>
+			fail("Timeout", tr(`Pane ${pane} did not respond within ${timeoutMs / 1000} s`, `面板 ${pane} 在 ${timeoutMs / 1000} 秒内没有响应`)),
+		timeoutMs,
+	);
 	try {
 		connection = await IpcConnection.connect(paneEndpoint(pane), { framing: "lines", timeoutMs });
 	} catch (error) {
@@ -51,14 +64,13 @@ async function ask(pane: string, request: PaneRequest, timeoutMs: number): Promi
 		return promise;
 	}
 	connection.start(
-		line => {
+		(line) => {
 			const reply = parseReply(line);
 			if (reply) finish(reply);
 			else fail("BadReply", tr(`Pane ${pane} responded with ${JSON.stringify(line)}`, `面板 ${pane} 返回了 ${JSON.stringify(line)}`));
 		},
-		reason => reason === null
-			? fail("BadReply", tr(`Pane ${pane} responded with ""`, `面板 ${pane} 返回了 ""`))
-			: fail("Socket", reason),
+		(reason) =>
+			reason === null ? fail("BadReply", tr(`Pane ${pane} responded with ""`, `面板 ${pane} 返回了 ""`)) : fail("Socket", reason),
 	);
 	connection.send(JSON.stringify(request));
 	return promise;
@@ -72,10 +84,14 @@ async function ask(pane: string, request: PaneRequest, timeoutMs: number): Promi
 export async function ompPanes(own: string): Promise<{ ok: true; panes: readonly OmpPane[] } | { ok: false; error: string }> {
 	const listed = await listPanes();
 	if (!listed.ok) return listed;
-	const probed = await Promise.all(listed.panes.filter(pane => pane.pane !== own).map(async (pane): Promise<OmpPane> => ({ ...pane, loaded: (await ask(pane.pane, { op: "ping" }, PING_MS)).ok })));
+	const probed = await Promise.all(
+		listed.panes
+			.filter((pane) => pane.pane !== own)
+			.map(async (pane): Promise<OmpPane> => ({ ...pane, loaded: (await ask(pane.pane, { op: "ping" }, PING_MS)).ok })),
+	);
 	// Panes that can become coordinator first; Tern's order within each group.
-	const omp = probed.filter(pane => pane.loaded || pane.ompSession !== null);
-	return { ok: true, panes: [...omp.filter(pane => pane.loaded), ...omp.filter(pane => !pane.loaded)] };
+	const omp = probed.filter((pane) => pane.loaded || pane.ompSession !== null);
+	return { ok: true, panes: [...omp.filter((pane) => pane.loaded), ...omp.filter((pane) => !pane.loaded)] };
 }
 
 /** Ask the omp session in `pane` to connect to this document as its coordinator; resolves once it did or could not. */
@@ -91,7 +107,10 @@ export function pairBeside(own: string, target: string): Promise<Outcome> {
 
 /** The first user prompt of a session started from the Playbook pane. */
 export function initPrompt(doc: string): string {
-	return tr(`Call playbook_open with doc ${doc} and act as this Playbook's coordinator. First use playbook_read to read it once, then wait: after each Playbook notice, follow its Next step.`, `调用 playbook_open，doc 为 ${doc}，作为这份 Playbook 的协调者。先用 playbook_read 读一遍它，然后等待：之后每收到 Playbook 通知，就按通知里的下一步做。`);
+	return tr(
+		`Call playbook_open with doc ${doc} and act as this Playbook's coordinator. First use playbook_read to read it once, then wait: after each Playbook notice, follow its Next step.`,
+		`调用 playbook_open，doc 为 ${doc}，作为这份 Playbook 的协调者。先用 playbook_read 读一遍它，然后等待：之后每收到 Playbook 通知，就按通知里的下一步做。`,
+	);
 }
 
 /** Start omp with the init prompt in a new pane on the left of `own`, so the Playbook pane is its right half. */
@@ -120,9 +139,13 @@ export interface CoordinatorPicker {
 }
 
 export function coordinatorPicker(doc: string, cwd: string, own: string | null): CoordinatorPicker {
-	const missingPane = () => tr("This Playbook pane is not running in a Tern pane (TERN_PANE is missing), so panes cannot be listed or arranged", "这个 Playbook 面板不在 Tern 的面板里运行（没有 TERN_PANE），无法列出或排列面板");
+	const missingPane = () =>
+		tr(
+			"This Playbook pane is not running in a Tern pane (TERN_PANE is missing), so panes cannot be listed or arranged",
+			"这个 Playbook 面板不在 Tern 的面板里运行（没有 TERN_PANE），无法列出或排列面板",
+		);
 	return {
-		list: () => own === null ? Promise.resolve({ ok: false, error: missingPane() }) : ompPanes(own),
+		list: () => (own === null ? Promise.resolve({ ok: false, error: missingPane() }) : ompPanes(own)),
 		async choose(pane) {
 			if (own === null) return { kind: "attachFailed", error: missingPane() };
 			const attached = await attach(pane, doc);
@@ -130,6 +153,6 @@ export function coordinatorPicker(doc: string, cwd: string, own: string | null):
 			const moved = await pairBeside(own, pane);
 			return moved.ok ? { kind: "paired" } : { kind: "moveFailed", error: moved.error };
 		},
-		newSession: () => own === null ? Promise.resolve({ ok: false, error: missingPane() }) : newSession(own, doc, cwd),
+		newSession: () => (own === null ? Promise.resolve({ ok: false, error: missingPane() }) : newSession(own, doc, cwd)),
 	};
 }

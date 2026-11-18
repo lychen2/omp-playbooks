@@ -1,7 +1,7 @@
-import { fence, passiveEdit, renderDefaults } from "./draft-helpers";
 import { describe, expect, test } from "bun:test";
 import type { RenderContext } from "../src/service/draft/contract";
 import { parseSequence, renderSequence, type SequenceSpec } from "../src/service/draft/sequence";
+import { fence, renderDefaults } from "./draft-helpers";
 
 function parsed(lines: readonly string[], args = ""): SequenceSpec {
 	const result = parseSequence(fence({ lines, args, line: 10 }));
@@ -14,7 +14,8 @@ function parsed(lines: readonly string[], args = ""): SequenceSpec {
 function rendered(spec: SequenceSpec, id = "draft") {
 	let source = "";
 	let size = { w: 0, h: 0 };
-	const ctx: RenderContext = { ...renderDefaults,
+	const ctx: RenderContext = {
+		...renderDefaults,
 		id,
 		view: "changes",
 		svg(nodeId, svg, dimensions, alt) {
@@ -22,15 +23,32 @@ function rendered(spec: SequenceSpec, id = "draft") {
 			size = dimensions;
 			return { id: nodeId, k: "image", p: { alt } };
 		},
-		image() { throw new Error("sequence must use SVG"); },
-		readFile() { throw new Error("sequence must not read files"); },
+		image() {
+			throw new Error("sequence must use SVG");
+		},
+		readFile() {
+			throw new Error("sequence must not read files");
+		},
 	};
-	return { result: renderSequence(spec, ctx), get svg() { return source; }, get size() { return size; } };
+	return {
+		result: renderSequence(spec, ctx),
+		get svg() {
+			return source;
+		},
+		get size() {
+			return size;
+		},
+	};
 }
 
 describe("sequence parser", () => {
 	test("parses the am handshake example in first-seen participant order", () => {
-		const spec = parsed(["Client -> Server: SYN", "Server --> Client: SYN-ACK", "Client -> Server: ACK", "note Client, Server: ESTABLISHED"]);
+		const spec = parsed([
+			"Client -> Server: SYN",
+			"Server --> Client: SYN-ACK",
+			"Client -> Server: ACK",
+			"note Client, Server: ESTABLISHED",
+		]);
 		expect(spec.participants).toEqual(["Client", "Server"]);
 		expect(spec.numbered).toBe(false);
 		expect(spec.steps).toEqual([
@@ -42,10 +60,20 @@ describe("sequence parser", () => {
 	});
 
 	test("honors declared ordering, self calls, single/spanning notes and phase dividers", () => {
-		const spec = parsed(["participants: C, A, B", "A -> B: request: with detail", "B -> B: self call", "note A: on one", "note A, C: across", "== Phase divider =="], "num");
+		const spec = parsed(
+			[
+				"participants: C, A, B",
+				"A -> B: request: with detail",
+				"B -> B: self call",
+				"note A: on one",
+				"note A, C: across",
+				"== Phase divider ==",
+			],
+			"num",
+		);
 		expect(spec.participants).toEqual(["C", "A", "B"]);
 		expect(spec.numbered).toBe(true);
-		expect(spec.steps.map(step => step.kind)).toEqual(["message", "message", "note", "note", "divider"]);
+		expect(spec.steps.map((step) => step.kind)).toEqual(["message", "message", "note", "note", "divider"]);
 		expect(spec.steps[0]).toMatchObject({ label: "request: with detail" });
 		expect(spec.steps[1]).toMatchObject({ from: "B", to: "B" });
 		expect(spec.steps[2]).toMatchObject({ over: ["A"] });
@@ -59,12 +87,30 @@ describe("sequence parser", () => {
 	});
 
 	test("trims names, supports reference CJK separators and ignores blank/comment lines", () => {
-		const spec = parsed(["", "  // explanation", "  participants：客户端，服务端  ", "  客户端 --> 服务端： 返回  ", "note 客户端，服务端：连接已建立"]);
+		const spec = parsed([
+			"",
+			"  // explanation",
+			"  participants：客户端，服务端  ",
+			"  客户端 --> 服务端： 返回  ",
+			"note 客户端，服务端：连接已建立",
+		]);
 		expect(spec.participants).toEqual(["客户端", "服务端"]);
 		expect(spec.steps[0]).toMatchObject({ from: "客户端", to: "服务端", dashed: true, label: "返回", line: 13 });
 	});
 
-	test.each(["A => B: invalid", "A ---> B: invalid", "A -> : missing", "-> B: missing", "note A:", "note : text", "== ==", "unrecognized", "participants:", "participants: A,,B", "note A,: text"])("reports malformed line %s at its original source location", text => {
+	test.each([
+		"A => B: invalid",
+		"A ---> B: invalid",
+		"A -> : missing",
+		"-> B: missing",
+		"note A:",
+		"note : text",
+		"== ==",
+		"unrecognized",
+		"participants:",
+		"participants: A,,B",
+		"note A,: text",
+	])("reports malformed line %s at its original source location", (text) => {
 		const result = parseSequence(fence({ args: "", lines: ["A -> B: good", "", text], line: 20 }));
 		expect(result.ok).toBe(false);
 		expect(result.diagnostics).toHaveLength(1);
@@ -111,13 +157,15 @@ describe("sequence SVG renderer", () => {
 	});
 
 	test("wraps CJK/long identifiers and XML-escapes labels without script or external refs", () => {
-		const output = rendered(parsed([
-			"participants: 客户端, 服务端, 数据库",
-			"客户端 -> 服务端: **这是需要换行的中文请求消息，附带完整身份认证信息以及业务参数**",
-			`服务端 -> 数据库: ${"verylongidentifier".repeat(20)}`,
-			"数据库 --> 服务端: <script>alert(1)</script> & done",
-			"note 客户端, 数据库: 安全地显示 <xml> & 内容",
-		]));
+		const output = rendered(
+			parsed([
+				"participants: 客户端, 服务端, 数据库",
+				"客户端 -> 服务端: **这是需要换行的中文请求消息，附带完整身份认证信息以及业务参数**",
+				`服务端 -> 数据库: ${"verylongidentifier".repeat(20)}`,
+				"数据库 --> 服务端: <script>alert(1)</script> & done",
+				"note 客户端, 数据库: 安全地显示 <xml> & 内容",
+			]),
+		);
 		expect(output.svg).not.toContain("<script>");
 		expect(output.svg).not.toContain("**");
 		expect(output.svg).toContain("&lt;script&gt;");
@@ -131,7 +179,9 @@ describe("sequence SVG renderer", () => {
 
 	test("keeps wide diagrams zoomable while capping displayed size proportionally", () => {
 		const participants = Array.from({ length: 30 }, (_, index) => `Actor${index}`);
-		const output = rendered(parsed([`participants: ${participants.join(", ")}`, "Actor0 -> Actor29: all participants", "Actor29 -> Actor29: self call"]));
+		const output = rendered(
+			parsed([`participants: ${participants.join(", ")}`, "Actor0 -> Actor29: all participants", "Actor29 -> Actor29: self call"]),
+		);
 		const viewBox = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(output.svg)!;
 		const naturalWidth = Number(viewBox[1]);
 		const naturalHeight = Number(viewBox[2]);
@@ -144,7 +194,7 @@ describe("sequence SVG renderer", () => {
 
 	test("has unique namespaced node IDs across renders", () => {
 		const spec = parsed(["A -> A: self"]);
-		const ids = [rendered(spec, "one"), rendered(spec, "two")].flatMap(output => output.result.nodes.map(node => node.id));
+		const ids = [rendered(spec, "one"), rendered(spec, "two")].flatMap((output) => output.result.nodes.map((node) => node.id));
 		expect(new Set(ids).size).toBe(ids.length);
 		expect(ids).toEqual(["one.sequence", "two.sequence"]);
 	});
