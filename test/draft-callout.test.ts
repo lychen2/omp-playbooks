@@ -1,8 +1,8 @@
-import { fence, passiveEdit, renderDefaults } from "./draft-helpers";
 import { describe, expect, test } from "bun:test";
-import { parseCallout, renderCallout, type CalloutSpec } from "../src/service/draft/callout.ts";
+import { type CalloutSpec, parseCallout, renderCallout } from "../src/service/draft/callout.ts";
 import type { FenceInput, RenderContext } from "../src/service/draft/contract.ts";
 import type { TspNode } from "../src/service/tsp-types.ts";
+import { fence, passiveEdit, renderDefaults } from "./draft-helpers";
 
 function input(args = "", lines: readonly string[] = ["正文"], line = 20): FenceInput {
 	return fence({ args, lines, line });
@@ -16,12 +16,19 @@ function parsed(source: FenceInput): CalloutSpec {
 }
 
 function context(id = "draft.callout"): RenderContext {
-	return { ...renderDefaults,
+	return {
+		...renderDefaults,
 		id,
 		view: "changes",
-		svg() { throw new Error("Callout must use native elements/Markdown nodes"); },
-		image() { throw new Error("Callout must use native elements/Markdown nodes"); },
-		readFile() { throw new Error("Callout must not read files"); },
+		svg() {
+			throw new Error("Callout must use native elements/Markdown nodes");
+		},
+		image() {
+			throw new Error("Callout must use native elements/Markdown nodes");
+		},
+		readFile() {
+			throw new Error("Callout must not read files");
+		},
 	};
 }
 
@@ -40,8 +47,11 @@ describe("callout argument syntax", () => {
 	}
 
 	test("parses the authoritative caution example", () => {
-		expect(parsed(input("warn Caution", ["Close the valve before you remove the pump."]))).toEqual({ span: expect.anything(),
-			type: "warn", title: "Caution", body: "Close the valve before you remove the pump.",
+		expect(parsed(input("warn Caution", ["Close the valve before you remove the pump."]))).toEqual({
+			span: expect.anything(),
+			type: "warn",
+			title: "Caution",
+			body: "Close the valve before you remove the pump.",
 		});
 	});
 
@@ -53,7 +63,12 @@ describe("callout argument syntax", () => {
 
 	test("normalizes known-type title whitespace like the reference parser", () => {
 		expect(parsed(input("  warn\t先关闭   阀门  "))).toEqual({ span: expect.anything(), type: "warn", title: "先关闭 阀门", body: "正文" });
-		expect(parsed(input("  未知\t保留   空格  "))).toEqual({ span: expect.anything(), type: "info", title: "未知\t保留   空格", body: "正文" });
+		expect(parsed(input("  未知\t保留   空格  "))).toEqual({
+			span: expect.anything(),
+			type: "info",
+			title: "未知\t保留   空格",
+			body: "正文",
+		});
 	});
 
 	test("allows omitted type and title when the body is present", () => {
@@ -71,21 +86,33 @@ describe("callout diagnostics", () => {
 		for (const args of ["", "  ", "info", "ok", "warn", "err"]) {
 			const result = parseCallout(input(args, ["", " \t"], 42));
 			expect(result.ok).toBe(false);
-			expect(result.diagnostics).toEqual([{ line: 42, severity: "error", component: "callout", message: "callout 需要标题或正文，例如：```callout info 提示" }]);
+			expect(result.diagnostics).toEqual([
+				{ line: 42, severity: "error", component: "callout", message: "callout 需要标题或正文，例如：```callout info 提示" },
+			]);
 		}
 	});
 
 	for (const [word, suggested] of [
-		["info", "info"], ["ok", "ok"], ["warn", "warn"], ["err", "err"],
-		["warning", "warn"], ["error", "err"], ["note", "info"], ["other-kind", "<info|ok|warn|err>"],
+		["info", "info"],
+		["ok", "ok"],
+		["warn", "warn"],
+		["err", "err"],
+		["warning", "warn"],
+		["error", "err"],
+		["note", "info"],
+		["other-kind", "<info|ok|warn|err>"],
 	] as const) {
 		test(`rejects body type ${word} and names the corrected fence syntax`, () => {
 			const result = parseCallout(input("标题", ["", "  // comment", `type: ${word} # comment`, "正文"], 60));
 			expect(result.ok).toBe(false);
-			expect(result.diagnostics).toEqual([{
-				line: 62, severity: "error", component: "callout",
-				message: `类型应写在围栏行而非正文，例如：\`\`\`callout ${suggested} [标题]`,
-			}]);
+			expect(result.diagnostics).toEqual([
+				{
+					line: 62,
+					severity: "error",
+					component: "callout",
+					message: `类型应写在围栏行而非正文，例如：\`\`\`callout ${suggested} [标题]`,
+				},
+			]);
 		});
 	}
 
@@ -108,19 +135,32 @@ describe("editable callout rendering", () => {
 		const body = "**Conclusion** $E=mc^2$\n\n- item";
 		const parsedSpec = parsed(input("warn Review", body.split("\n")));
 		const edits: string[] = [];
-		const rendered = renderCallout(parsedSpec, { ...context(), edit: { ...passiveEdit, text(_id, span, multiline, view) { expect(multiline).toBe(true); edits.push(body.slice(span.start, span.end)); return view; } } });
+		const rendered = renderCallout(parsedSpec, {
+			...context(),
+			edit: {
+				...passiveEdit,
+				text(_id, span, multiline, view) {
+					expect(multiline).toBe(true);
+					edits.push(body.slice(span.start, span.end));
+					return view;
+				},
+			},
+		});
 		const walk = (node: TspNode): TspNode[] => [node, ...(node.c ?? []).flatMap(walk)];
 		const nodes = rendered.nodes.flatMap(walk);
-		expect(nodes.some(node => node.p?.text === "Review")).toBe(true);
-		expect(nodes.some(node => node.k === "md" && node.p?.text === body)).toBe(true);
+		expect(nodes.some((node) => node.p?.text === "Review")).toBe(true);
+		expect(nodes.some((node) => node.k === "md" && node.p?.text === body)).toBe(true);
 		expect(edits).toEqual([body]);
 		expect(rendered.diagnostics).toEqual([]);
 		const titleless = renderCallout(parsed(input("info", ["Body"])), context()).nodes.flatMap(walk);
-		expect(titleless.filter(node => node.p?.tag === "strong")).toEqual([]);
+		expect(titleless.filter((node) => node.p?.tag === "strong")).toEqual([]);
 	});
 	test("unique node ids allow multiple callouts in the same document", () => {
 		const walk = (node: TspNode): TspNode[] => [node, ...(node.c ?? []).flatMap(walk)];
-		const nodes = [...renderCallout(parsed(input("info")), context("one")).nodes, ...renderCallout(parsed(input("err")), context("two")).nodes].flatMap(walk);
-		expect(new Set(nodes.map(node => node.id)).size).toBe(nodes.length);
+		const nodes = [
+			...renderCallout(parsed(input("info")), context("one")).nodes,
+			...renderCallout(parsed(input("err")), context("two")).nodes,
+		].flatMap(walk);
+		expect(new Set(nodes.map((node) => node.id)).size).toBe(nodes.length);
 	});
 });

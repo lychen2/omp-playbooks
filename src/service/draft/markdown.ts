@@ -36,7 +36,10 @@ export function markdownBlocks(lines: readonly SourceLine[]): Block[] {
 	const blank = (line: SourceLine | undefined): boolean => line === undefined || line.text.trim() === "";
 	while (index < lines.length) {
 		const line = lines[index]!;
-		if (blank(line)) { index++; continue; }
+		if (blank(line)) {
+			index++;
+			continue;
+		}
 		if (HEADING.test(line.text)) {
 			blocks.push({ kind: "heading", span: { start: line.offset, end: end(line) }, text: line.text });
 			index++;
@@ -64,7 +67,10 @@ export function markdownBlocks(lines: readonly SourceLine[]): Block[] {
 				while (index < lines.length) {
 					const next = lines[index]!;
 					if (blank(next)) {
-						if (!blank(lines[index + 1]) && /^[ \t]{2,}/.test(lines[index + 1]!.text)) { index++; continue; }
+						if (!blank(lines[index + 1]) && /^[ \t]{2,}/.test(lines[index + 1]!.text)) {
+							index++;
+							continue;
+						}
 						break;
 					}
 					if (ITEM.exec(next.text) && !/^[ \t]{2,}/.test(next.text)) break;
@@ -73,16 +79,44 @@ export function markdownBlocks(lines: readonly SourceLine[]): Block[] {
 					index++;
 				}
 				const content = { start: Math.min(contentStart, end(last)), end: end(last) };
-				items.push({ span: { start: head.offset, end: end(last) }, content, text: lines.slice(lines.indexOf(head), lines.indexOf(last) + 1).map(part => part.text).join("\n").slice(marker[0].length) });
+				items.push({
+					span: { start: head.offset, end: end(last) },
+					content,
+					text: lines
+						.slice(lines.indexOf(head), lines.indexOf(last) + 1)
+						.map((part) => part.text)
+						.join("\n")
+						.slice(marker[0].length),
+				});
 			}
-			blocks.push({ kind: "list", ordered, start: ordered ? Number(item[3]) : 1, span: { start: items[0]!.span.start, end: items.at(-1)!.span.end }, items });
+			blocks.push({
+				kind: "list",
+				ordered,
+				start: ordered ? Number(item[3]) : 1,
+				span: { start: items[0]!.span.start, end: items.at(-1)!.span.end },
+				items,
+			});
 			continue;
 		}
 		const first = line;
 		let last = line;
 		index++;
-		while (index < lines.length && !blank(lines[index]) && !HEADING.test(lines[index]!.text) && !COMMENT.test(lines[index]!.text) && !ITEM.exec(lines[index]!.text)) last = lines[index++]!;
-		blocks.push({ kind: "paragraph", span: { start: first.offset, end: end(last) }, text: lines.slice(lines.indexOf(first), lines.indexOf(last) + 1).map(part => part.text).join("\n") });
+		while (
+			index < lines.length &&
+			!blank(lines[index]) &&
+			!HEADING.test(lines[index]!.text) &&
+			!COMMENT.test(lines[index]!.text) &&
+			!ITEM.exec(lines[index]!.text)
+		)
+			last = lines[index++]!;
+		blocks.push({
+			kind: "paragraph",
+			span: { start: first.offset, end: end(last) },
+			text: lines
+				.slice(lines.indexOf(first), lines.indexOf(last) + 1)
+				.map((part) => part.text)
+				.join("\n"),
+		});
 	}
 	return blocks;
 }
@@ -99,6 +133,10 @@ function inlineNodes(id: string, text: string): TspNode[] {
 	}
 	if (index < text.length) nodes.push({ id: `${id}.${nodes.length}`, k: "el", p: { tag: "span", text: text.slice(index) } });
 	return nodes;
+}
+
+function unreachable(value: never): never {
+	throw new Error(`Unexpected markdown variant: ${JSON.stringify(value)}`);
 }
 
 /** A piece of drawn inline text: Markdown, a slot's control, or a reference drawn as a link. */
@@ -119,7 +157,12 @@ function referencePieces(text: string, plain: (text: string) => readonly Piece[]
 		if (target === null) continue;
 		// An invalid expression is the compiler's to report; the link still draws, by its default name.
 		const expression = references.parseExpression(reference.expressionText);
-		pieces.push(...plain(text.slice(offset, reference.offset)), { kind: "reference", text: reference.text, target, alias: expression.ok ? expression.value.alias : null });
+		pieces.push(...plain(text.slice(offset, reference.offset)), {
+			kind: "reference",
+			text: reference.text,
+			target,
+			alias: expression.ok ? expression.value.alias : null,
+		});
 		offset = reference.offset + reference.text.length;
 	}
 	pieces.push(...plain(text.slice(offset)));
@@ -129,12 +172,19 @@ function referencePieces(text: string, plain: (text: string) => readonly Piece[]
 /** An inline run: each piece in its place, Markdown pieces as `inlineNodes`. */
 function run(ctx: Pick<RenderContext, "edit">, id: string, tag: string, className: string, pieces: readonly Piece[]): TspNode {
 	return {
-		id, k: "el", p: { tag, class: className ? `pb-inline ${className}` : "pb-inline" },
+		id,
+		k: "el",
+		p: { tag, class: className ? `pb-inline ${className}` : "pb-inline" },
 		c: pieces.flatMap((piece, index): TspNode[] => {
 			switch (piece.kind) {
-				case "text": return inlineNodes(`${id}.t${index}`, piece.text);
-				case "slot": return [ctx.edit.slot(`${id}.s${index}`, piece.name)];
-				case "reference": return [ctx.edit.reference(`${id}.r${index}`, piece.text, piece.target, piece.alias)];
+				case "text":
+					return inlineNodes(`${id}.t${index}`, piece.text);
+				case "slot":
+					return [ctx.edit.slot(`${id}.s${index}`, piece.name)];
+				case "reference":
+					return [ctx.edit.reference(`${id}.r${index}`, piece.text, piece.target, piece.alias)];
+				default:
+					return unreachable(piece);
 			}
 		}),
 	};
@@ -146,7 +196,7 @@ function run(ctx: Pick<RenderContext, "edit">, id: string, tag: string, classNam
  * block and cannot hold controls, and Tern opens its links without telling the pane).
  */
 function drawText(ctx: RenderContext, id: string, text: string, tag: "div" | "span", pieces: readonly Piece[]): TspNode {
-	if (tag === "div" && pieces.every(piece => piece.kind === "text")) return { id, k: "md", p: { text } };
+	if (tag === "div" && pieces.every((piece) => piece.kind === "text")) return { id, k: "md", p: { text } };
 	return run(ctx, id, tag, "", pieces);
 }
 
@@ -157,13 +207,19 @@ export function inlineText(ctx: RenderContext, id: string, text: string, tag: "d
 
 /** Prose of a Markdown run: slot controls and reference links. */
 function proseText(ctx: RenderContext, id: string, text: string): TspNode {
-	return drawText(ctx, id, text, "div", referencePieces(text, plain => slotParts(plain, ctx.slots)));
+	return drawText(
+		ctx,
+		id,
+		text,
+		"div",
+		referencePieces(text, (plain) => slotParts(plain, ctx.slots)),
+	);
 }
 
 /** A heading's text with its references as links, as `tag` of class `className`; null when it has none. */
 export function linkedHeading(ctx: Pick<RenderContext, "edit">, id: string, text: string, tag: string, className: string): TspNode | null {
-	const pieces = referencePieces(text, plain => plain ? [{ kind: "text", text: plain }] : []);
-	return pieces.some(piece => piece.kind === "reference") ? run(ctx, id, tag, className, pieces) : null;
+	const pieces = referencePieces(text, (plain) => (plain ? [{ kind: "text", text: plain }] : []));
+	return pieces.some((piece) => piece.kind === "reference") ? run(ctx, id, tag, className, pieces) : null;
 }
 
 /** A Markdown run as its editable units. */
@@ -171,16 +227,29 @@ export function renderMarkdown(ctx: RenderContext, lines: readonly SourceLine[])
 	return markdownBlocks(lines).map((block, index): TspNode => {
 		const id = `${ctx.id}.b${index}`;
 		switch (block.kind) {
-			case "paragraph": return ctx.edit.text(id, block.span, true, proseText(ctx, `${id}.view`, block.text));
+			case "paragraph":
+				return ctx.edit.text(id, block.span, true, proseText(ctx, `${id}.view`, block.text));
 			case "heading": {
 				const marker = HEADING.exec(block.text)!;
-				const view = linkedHeading(ctx, `${id}.view`, block.text.slice(marker[0].length), `h${Math.min(marker[1]!.length, 4)}`, "pb-heading");
+				const view = linkedHeading(
+					ctx,
+					`${id}.view`,
+					block.text.slice(marker[0].length),
+					`h${Math.min(marker[1]!.length, 4)}`,
+					"pb-heading",
+				);
 				return ctx.edit.text(id, block.span, false, view ?? { id: `${id}.view`, k: "md", p: { text: block.text } });
 			}
-			case "comment": return {
-				id, k: "el", p: { tag: "div", class: "pb-comment" },
-				c: [{ id: `${id}.slash`, k: "el", p: { tag: "span", class: "pb-comment-slash", text: "//" } }, ctx.edit.text(`${id}.text`, block.span, true, proseText(ctx, `${id}.view`, block.text))],
-			};
+			case "comment":
+				return {
+					id,
+					k: "el",
+					p: { tag: "div", class: "pb-comment" },
+					c: [
+						{ id: `${id}.slash`, k: "el", p: { tag: "span", class: "pb-comment-slash", text: "//" } },
+						ctx.edit.text(`${id}.text`, block.span, true, proseText(ctx, `${id}.view`, block.text)),
+					],
+				};
 			case "list": {
 				const items: ListItem[] = block.items.map((item, position) => ({
 					span: item.span,
@@ -188,6 +257,8 @@ export function renderMarkdown(ctx: RenderContext, lines: readonly SourceLine[])
 				}));
 				return ctx.edit.list(id, block.span, block.ordered, block.start, items);
 			}
+			default:
+				return unreachable(block);
 		}
 	});
 }

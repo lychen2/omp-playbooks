@@ -1,14 +1,22 @@
-import { fence, passiveEdit, renderDefaults } from "./draft-helpers";
 import { describe, expect, test } from "bun:test";
 import type { FenceInput, RenderContext } from "../src/service/draft/contract";
-import { parseKv, renderKv, type KvSpec } from "../src/service/draft/kv";
+import { type KvSpec, parseKv, renderKv } from "../src/service/draft/kv";
 import type { TspNode } from "../src/service/tsp-types";
+import { fence, passiveEdit, renderDefaults } from "./draft-helpers";
 
-const context: RenderContext = { ...renderDefaults,
-	id: "draft.kv", view: "changes",
-	svg: () => { throw new Error("kv must use native nodes"); },
-	image: () => { throw new Error("kv must use native nodes"); },
-	readFile: () => { throw new Error("kv must not read files"); },
+const context: RenderContext = {
+	...renderDefaults,
+	id: "draft.kv",
+	view: "changes",
+	svg: () => {
+		throw new Error("kv must use native nodes");
+	},
+	image: () => {
+		throw new Error("kv must use native nodes");
+	},
+	readFile: () => {
+		throw new Error("kv must not read files");
+	},
 };
 function input(lines: readonly string[], args = "", line = 10): FenceInput {
 	return fence({ lines, args, line });
@@ -19,17 +27,22 @@ function spec(lines: readonly string[], args = ""): KvSpec {
 	return result.value;
 }
 function flatten(nodes: readonly TspNode[]): TspNode[] {
-	return nodes.flatMap(node => [node, ...flatten(node.c ?? [])]);
+	return nodes.flatMap((node) => [node, ...flatten(node.c ?? [])]);
 }
 
 describe("kv syntax", () => {
 	test("parses the authoritative title block example with default two columns", () => {
 		expect(parseKv(input(["* Title: Simplified Technical English", "Specification: ASD-STE100", "Owner: ASD"]))).toEqual({
-			ok: true, diagnostics: [], value: { cols: 2, items: [
-				{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "wide", key: "Title", value: "Simplified Technical English" },
-				{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "item", key: "Specification", value: "ASD-STE100" },
-				{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "item", key: "Owner", value: "ASD" },
-			] },
+			ok: true,
+			diagnostics: [],
+			value: {
+				cols: 2,
+				items: [
+					{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "wide", key: "Title", value: "Simplified Technical English" },
+					{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "item", key: "Specification", value: "ASD-STE100" },
+					{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "item", key: "Owner", value: "ASD" },
+				],
+			},
 		});
 	});
 	test("splits at whichever colon appears first and preserves further colons", () => {
@@ -53,9 +66,14 @@ describe("kv syntax", () => {
 	test("reports every malformed line at its original source line while retaining drawable items", () => {
 		const result = parseKv(input(["", "// note", "bad", "Key: value", "* missing separator", "：missing key"], "", 20));
 		expect(result.ok).toBe(true);
-		if (result.ok) expect(result.value.items).toEqual([{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "item", key: "Key", value: "value" }]);
-		expect(result.diagnostics.map(diagnostic => [diagnostic.component, diagnostic.severity, diagnostic.line])).toEqual([
-			["kv", "error", 22], ["kv", "error", 24], ["kv", "error", 25],
+		if (result.ok)
+			expect(result.value.items).toEqual([
+				{ keySpan: expect.anything(), valueSpan: expect.anything(), kind: "item", key: "Key", value: "value" },
+			]);
+		expect(result.diagnostics.map((diagnostic) => [diagnostic.component, diagnostic.severity, diagnostic.line])).toEqual([
+			["kv", "error", 22],
+			["kv", "error", 24],
+			["kv", "error", 25],
 		]);
 		for (const diagnostic of result.diagnostics) expect(diagnostic.message).toContain("key: value");
 	});
@@ -65,12 +83,21 @@ describe("kv syntax", () => {
 	test("empty or comment-only content requires at least one entry", () => {
 		for (const lines of [[], ["", " // comment"]]) {
 			expect(parseKv(input(lines, "", 30))).toMatchObject({
-				ok: false, diagnostics: [{ line: 30, severity: "error", component: "kv" }],
+				ok: false,
+				diagnostics: [{ line: 30, severity: "error", component: "kv" }],
 			});
 		}
 	});
 	test("honors integer columns with source defaulting and clamping", () => {
-		for (const [args, cols] of [["cols=1", 1], ["cols=3", 3], ["cols=6", 6], ["cols=20", 6], ["cols=-1", 1], ["cols=0", 2], ["cols", 1]] as const) {
+		for (const [args, cols] of [
+			["cols=1", 1],
+			["cols=3", 3],
+			["cols=6", 6],
+			["cols=20", 6],
+			["cols=-1", 1],
+			["cols=0", 2],
+			["cols", 1],
+		] as const) {
 			expect(spec(["Key: value"], args).cols).toBe(cols);
 		}
 	});
@@ -94,29 +121,51 @@ describe("editable kv rendering", () => {
 		const source = "  Owner : Platform\n* Title: Wide value\nEmpty:";
 		const parsed = spec(source.split("\n"));
 		const edits: { text: string; multiline: boolean }[] = [];
-		const result = renderKv(parsed, { ...context, edit: { ...passiveEdit, text(_id, span, multiline, node) { edits.push({ text: source.slice(span.start, span.end), multiline }); return node; } } });
+		const result = renderKv(parsed, {
+			...context,
+			edit: {
+				...passiveEdit,
+				text(_id, span, multiline, node) {
+					edits.push({ text: source.slice(span.start, span.end), multiline });
+					return node;
+				},
+			},
+		});
 		expect(result.diagnostics).toEqual([]);
 		expect(edits).toEqual([
-			{ text: "Owner", multiline: false }, { text: "Platform", multiline: false },
-			{ text: "Title", multiline: false }, { text: "Wide value", multiline: false },
-			{ text: "Empty", multiline: false }, { text: "", multiline: false },
+			{ text: "Owner", multiline: false },
+			{ text: "Platform", multiline: false },
+			{ text: "Title", multiline: false },
+			{ text: "Wide value", multiline: false },
+			{ text: "Empty", multiline: false },
+			{ text: "", multiline: false },
 		]);
 	});
 	test("duplicate keys still emit unique namespaced node ids", () => {
-		const ids = flatten(renderKv(spec(["A: 1", "A: 2", "* A: 3"]), context).nodes).map(node => node.id);
+		const ids = flatten(renderKv(spec(["A: 1", "A: 2", "* A: 3"]), context).nodes).map((node) => node.id);
 		expect(new Set(ids).size).toBe(ids.length);
-		expect(ids.every(id => id.startsWith(`${context.id}.`))).toBe(true);
+		expect(ids.every((id) => id.startsWith(`${context.id}.`))).toBe(true);
 	});
 	test("inline Markdown in values is drawn, not shown as literal backticks", () => {
 		const nodes = flatten(renderKv(spec(["Target: only `mail-to-root` (**sendmail**)"]), context).nodes);
-		expect(nodes.filter(node => node.p?.tag === "code").map(node => node.p?.text)).toEqual(["mail-to-root"]);
-		expect(nodes.filter(node => node.p?.tag === "strong").map(node => node.p?.text)).toEqual(["sendmail"]);
-		expect(nodes.some(node => typeof node.p?.text === "string" && node.p.text.includes("`"))).toBe(false);
+		expect(nodes.filter((node) => node.p?.tag === "code").map((node) => node.p?.text)).toEqual(["mail-to-root"]);
+		expect(nodes.filter((node) => node.p?.tag === "strong").map((node) => node.p?.text)).toEqual(["sendmail"]);
+		expect(nodes.some((node) => typeof node.p?.text === "string" && node.p.text.includes("`"))).toBe(false);
 	});
 	test("declared slots in values use the slot host without changing keys", () => {
 		const uses: string[] = [];
 		const slot = { name: "owner", value: "Platform", options: [], line: 1 };
-		renderKv(spec(["Owner: {{owner}}"]), { ...context, slots: new Map([["owner", slot]]), edit: { ...passiveEdit, slot(id, name) { uses.push(name); return { id, k: "text", p: { text: slot.value } }; } } });
+		renderKv(spec(["Owner: {{owner}}"]), {
+			...context,
+			slots: new Map([["owner", slot]]),
+			edit: {
+				...passiveEdit,
+				slot(id, name) {
+					uses.push(name);
+					return { id, k: "text", p: { text: slot.value } };
+				},
+			},
+		});
 		expect(uses).toEqual(["owner"]);
 	});
 });

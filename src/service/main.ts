@@ -6,8 +6,8 @@
 //                                                   service in a new pane right of <pane id>
 import { realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { tr } from "../../omomp-shared/i18n";
 import { documentEndpoint } from "../domain/protocol";
-import { tr } from "../i18n";
 import { checks } from "./checks";
 import { readClipboardImage } from "./clipboard";
 import { coordinatorPicker } from "./coordinators";
@@ -15,7 +15,7 @@ import { Core } from "./core";
 import { fetcher } from "./fetch";
 import { focusPane, openServicePane, ownPane } from "./panes";
 import { references } from "./references";
-import { revealService, serveK1, ServiceRunning } from "./socket";
+import { revealService, ServiceRunning, serveK1 } from "./socket";
 import { createStore } from "./store";
 import { createTspSession } from "./tsp";
 import { startUi } from "./ui";
@@ -41,10 +41,14 @@ const FAILED = 5;
 function invocation(argv: readonly string[]): Invocation | null {
 	const [mode, doc, pane] = argv;
 	switch (mode) {
-		case undefined: return null;
-		case "--reveal": return doc === undefined ? null : { kind: "reveal", file: doc };
-		case "--open": return doc === undefined || pane === undefined ? null : { kind: "open", file: doc, pane };
-		default: return { kind: "serve", file: mode };
+		case undefined:
+			return null;
+		case "--reveal":
+			return doc === undefined ? null : { kind: "reveal", file: doc };
+		case "--open":
+			return doc === undefined || pane === undefined ? null : { kind: "open", file: doc, pane };
+		default:
+			return { kind: "serve", file: mode };
 	}
 }
 
@@ -55,30 +59,27 @@ if (launch === null) {
 }
 const templatePath = realpathSync(resolve(launch.file));
 const endpoint = documentEndpoint(templatePath);
-switch (launch.kind) {
-	case "serve": break;
-	case "reveal": {
-		const outcome = await revealService(endpoint);
-		switch (outcome.kind) {
-			case "revealed": process.exit(0);
-			case "absent": process.exit(ABSENT);
-			case "failed": process.stderr.write(`${outcome.message}\n`); process.exit(FAILED);
-		}
+if (launch.kind === "reveal") {
+	const outcome = await revealService(endpoint);
+	if (outcome.kind === "revealed") process.exit(0);
+	else if (outcome.kind === "absent") process.exit(ABSENT);
+	else {
+		process.stderr.write(`${outcome.message}\n`);
+		process.exit(FAILED);
 	}
-	case "open": {
-		const outcome = await revealService(endpoint);
-		switch (outcome.kind) {
-			case "revealed": process.exit(0);
-			case "failed": process.stderr.write(`${outcome.message}\n`); process.exit(FAILED);
-			case "absent": {
-				const split = await openServicePane(launch.pane, templatePath);
-				if (!split.ok) {
-					process.stderr.write(`${split.error}\n`);
-					process.exit(FAILED);
-				}
-				process.exit(0);
-			}
+} else if (launch.kind === "open") {
+	const outcome = await revealService(endpoint);
+	if (outcome.kind === "revealed") process.exit(0);
+	else if (outcome.kind === "failed") {
+		process.stderr.write(`${outcome.message}\n`);
+		process.exit(FAILED);
+	} else {
+		const split = await openServicePane(launch.pane, templatePath);
+		if (!split.ok) {
+			process.stderr.write(`${split.error}\n`);
+			process.exit(FAILED);
 		}
+		process.exit(0);
 	}
 }
 const core = new Core({
@@ -102,10 +103,18 @@ try {
 	// The document already has its service: show that pane and leave, so this pane closes.
 	const outcome = await revealService(endpoint);
 	if (outcome.kind === "revealed") process.exit(0);
-	process.stderr.write(`${tr(`The document service for this Playbook is already running: ${templatePath}`, `这个 Playbook 的文档服务已在运行：${templatePath}`)}\n${outcome.kind === "failed" ? `${outcome.message}\n` : ""}`);
+	process.stderr.write(
+		`${tr(`The document service for this Playbook is already running: ${templatePath}`, `这个 Playbook 的文档服务已在运行：${templatePath}`)}\n${outcome.kind === "failed" ? `${outcome.message}\n` : ""}`,
+	);
 	process.exit(3);
 }
-startUi(core, createTspSession(), dirname(templatePath), coordinatorPicker(templatePath, dirname(templatePath), ownPane()), readClipboardImage);
+startUi(
+	core,
+	createTspSession(),
+	dirname(templatePath),
+	coordinatorPicker(templatePath, dirname(templatePath), ownPane()),
+	readClipboardImage,
+);
 
 const shutdown = (): void => {
 	core.stop();

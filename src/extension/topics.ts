@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { language } from "../i18n";
+import { language } from "../../omomp-shared/i18n";
 
 const FILE = /^(playbook_[a-z]+)\.([a-z-]+)\.md$/;
 const FENCED = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
@@ -32,7 +32,12 @@ function languageTopic(): string {
 
 /** Every tool's topics, from the files beside this module and the language rule. */
 export function playbookTopics(dir = join(import.meta.dir, "topics")): ReadonlyMap<string, readonly Topic[]> {
-	const tools = new Map<string, Topic[]>([["playbook_open", [{ name: "language", title: "Language of new text", when: "before writing or editing any Playbook text", read: languageTopic }]]]);
+	const tools = new Map<string, Topic[]>([
+		[
+			"playbook_open",
+			[{ name: "language", title: "Language of new text", when: "before writing or editing any Playbook text", read: languageTopic }],
+		],
+	]);
 	for (const file of readdirSync(dir).sort()) {
 		const name = FILE.exec(file);
 		if (!name) continue;

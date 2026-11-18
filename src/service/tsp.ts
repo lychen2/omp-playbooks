@@ -11,7 +11,7 @@ const BEL = "\x07";
 const OVERDUE_MS = 2_000;
 
 function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+	return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function index(value: unknown): value is number {
@@ -28,7 +28,11 @@ function parseEvent(body: unknown): TspEvent {
 				if (index(event.s)) return { ev: "ack", s: event.s };
 				break;
 			case "error":
-				if ((event.s === undefined || index(event.s)) && (event.op === undefined || index(event.op)) && (event.msg === undefined || typeof event.msg === "string")) {
+				if (
+					(event.s === undefined || index(event.s)) &&
+					(event.op === undefined || index(event.op)) &&
+					(event.msg === undefined || typeof event.msg === "string")
+				) {
 					return { ev: "error", s: event.s, op: event.op, msg: event.msg };
 				}
 				break;
@@ -41,17 +45,35 @@ function parseEvent(body: unknown): TspEvent {
 				break;
 			case "action": {
 				// `mods` lists held modifiers (`shift`, `ctrl`, `alt`, `meta`) and is absent when none is.
-				const mods = event.mods === undefined ? [] : Array.isArray(event.mods) ? event.mods.filter((mod): mod is string => typeof mod === "string") : null;
+				const mods =
+					event.mods === undefined
+						? []
+						: Array.isArray(event.mods)
+							? event.mods.filter((mod): mod is string => typeof mod === "string")
+							: null;
 				if (typeof id === "string" && typeof event.act === "string" && mods !== null) return { ev: "action", id, act: event.act, mods };
 				break;
 			}
 			case "change":
-				if (typeof id === "string" && (event.checked === undefined || typeof event.checked === "boolean") && (event.value === undefined || typeof event.value === "string") && (event.text === undefined || typeof event.text === "string")) {
+				if (
+					typeof id === "string" &&
+					(event.checked === undefined || typeof event.checked === "boolean") &&
+					(event.value === undefined || typeof event.value === "string") &&
+					(event.text === undefined || typeof event.text === "string")
+				) {
 					return { ev: "change", id, checked: event.checked, value: event.value, text: event.text };
 				}
 				break;
 			case "edit":
-				if (typeof id === "string" && index(event.from) && index(event.to) && event.from <= event.to && typeof event.text === "string" && index(event.cursor) && index(event.len)) {
+				if (
+					typeof id === "string" &&
+					index(event.from) &&
+					index(event.to) &&
+					event.from <= event.to &&
+					typeof event.text === "string" &&
+					index(event.cursor) &&
+					index(event.len)
+				) {
 					return { ev: "edit", id, from: event.from, to: event.to, text: event.text, cursor: event.cursor, len: event.len };
 				}
 				break;
@@ -80,11 +102,16 @@ interface BlockRender {
 function operationBlock(op: FrameOp, blocks: readonly string[]): string | undefined {
 	const id = op[1];
 	if (id === null) return undefined;
-	const matches = blocks.filter(block => id.startsWith(`${block}.`));
+	const matches = blocks.filter((block) => id.startsWith(`${block}.`));
 	return matches.length === 1 ? matches[0] : undefined;
 }
 
-export function createTspSession(out: (s: string) => void = s => { process.stdout.write(s); }, input: NodeJS.ReadStream = process.stdin): TspSession {
+export function createTspSession(
+	out: (s: string) => void = (s) => {
+		process.stdout.write(s);
+	},
+	input: NodeJS.ReadStream = process.stdin,
+): TspSession {
 	let surface: string | undefined;
 	let sequence = 0;
 	let acknowledged = 0;
@@ -170,7 +197,14 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 				}
 				break;
 			}
-			case "other": case "theme": case "focus": case "action": case "change": case "edit": case "undo": case "toggle":
+			case "other":
+			case "theme":
+			case "focus":
+			case "action":
+			case "change":
+			case "edit":
+			case "undo":
+			case "toggle":
 				break;
 		}
 	}
@@ -179,7 +213,11 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 		const verb = wire.slice(0, 1);
 		const text = wire.slice(2);
 		let body: unknown;
-		try { body = JSON.parse(text); } catch { body = text; }
+		try {
+			body = JSON.parse(text);
+		} catch {
+			body = text;
+		}
 		const reply = record(body);
 		if (verb === "r" && reply?.r === "hello" && typeof reply.dark === "boolean") {
 			if (index(reply.apc) && reply.apc >= 4) apcLimit = reply.apc;
@@ -200,9 +238,16 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 		escapeTimer = undefined;
 		let keyBytes = "";
 		while (buffer) {
-			const escape = buffer.indexOf(ESC);
-			if (escape < 0) { keyBytes += buffer; buffer = ""; break; }
-			if (escape > 0) { keyBytes += buffer.slice(0, escape); buffer = buffer.slice(escape); }
+			const at = buffer.indexOf(ESC);
+			if (at < 0) {
+				keyBytes += buffer;
+				buffer = "";
+				break;
+			}
+			if (at > 0) {
+				keyBytes += buffer.slice(0, at);
+				buffer = buffer.slice(at);
+			}
 			if (buffer.startsWith(APC)) {
 				const end = buffer.indexOf(ST, APC.length);
 				keys(keyBytes);
@@ -226,14 +271,24 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 				message(wire);
 				continue;
 			}
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal input is matched at the byte level, ESC is the lead-in
 			const da = /^\x1b\[\?[0-9;:]*c/.exec(buffer);
-			if (da) { buffer = buffer.slice(da[0].length); continue; }
+			if (da) {
+				buffer = buffer.slice(da[0].length);
+				continue;
+			}
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal input is matched at the byte level, ESC is the lead-in
 			if (APC.startsWith(buffer) || OSC.startsWith(buffer) || `${ESC}[?`.startsWith(buffer) || /^\x1b\[\?[0-9;:]*$/.test(buffer)) {
 				keys(keyBytes);
 				// ESC is also a standalone key, and Alt+] arrives as `ESC ]`, the start of an OSC prefix:
 				// these ambiguous prefixes get a short delay before they count as keys.
 				if (buffer === ESC || buffer === `${ESC}[` || (buffer.length > 1 && OSC.startsWith(buffer))) {
-					escapeTimer = setTimeout(() => { const bytes = buffer; buffer = ""; escapeTimer = undefined; keys(bytes); }, 25);
+					escapeTimer = setTimeout(() => {
+						const bytes = buffer;
+						buffer = "";
+						escapeTimer = undefined;
+						keys(bytes);
+					}, 25);
 					escapeTimer.unref();
 				}
 				return;
@@ -249,7 +304,10 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 			if (onInput) throw new Error("TSP session already started");
 			onInput = listener;
 			if (input.isTTY) input.setRawMode(true);
-			input.on("data", (chunk: Buffer | string) => { buffer += typeof chunk === "string" ? chunk : decoder.write(chunk); parseInput(); });
+			input.on("data", (chunk: Buffer | string) => {
+				buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+				parseInput();
+			});
 			input.on("end", () => {
 				buffer += decoder.end();
 				parseInput();
@@ -275,7 +333,7 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 			if (surface === undefined) throw new Error("Open a TSP surface before sending frames");
 			const s = ++sequence;
 			const frameBlocks = [...new Set(blocks)];
-			frames.set(s, { blocks: frameBlocks, operations: ops.map(op => operationBlock(op, frameBlocks)) });
+			frames.set(s, { blocks: frameBlocks, operations: ops.map((op) => operationBlock(op, frameBlocks)) });
 			for (const block of frameBlocks) {
 				const previous = renders.get(block);
 				clearTimeout(previous?.timer);
@@ -293,7 +351,11 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 		},
 		status(block): FrameStatus {
 			const render = renders.get(block);
-			return { blockError: render?.blockError ?? false, documentError, pendingOverdue: render !== undefined && render.sequence > acknowledged && Date.now() - render.sent >= OVERDUE_MS };
+			return {
+				blockError: render?.blockError ?? false,
+				documentError,
+				pendingOverdue: render !== undefined && render.sequence > acknowledged && Date.now() - render.sent >= OVERDUE_MS,
+			};
 		},
 		fullRedraw(s) {
 			if (documentError && s > documentErrorAfter && frames.has(s)) {
@@ -305,6 +367,8 @@ export function createTspSession(out: (s: string) => void = s => { process.stdou
 				}
 			}
 		},
-		onStatusChange(listener) { listeners.push(listener); },
+		onStatusChange(listener) {
+			listeners.push(listener);
+		},
 	};
 }

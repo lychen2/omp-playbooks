@@ -1,8 +1,8 @@
-import { fence, passiveEdit, renderDefaults } from "./draft-helpers";
 import { describe, expect, test } from "bun:test";
 import type { FileRead, RenderContext } from "../src/service/draft/contract";
-import { parseImage, renderImage, type ImageSpec } from "../src/service/draft/image";
+import { type ImageSpec, parseImage, renderImage } from "../src/service/draft/image";
 import type { TspNode } from "../src/service/tsp-types";
+import { fence, renderDefaults } from "./draft-helpers";
 
 const LINE = 27;
 const LIMIT = 5 * 1024 * 1024;
@@ -16,21 +16,27 @@ function parse(source: string): ImageSpec {
 function fakeContext(file: FileRead = { ok: true, bytes: new Uint8Array([1, 2, 3]), path: "/playbook/example.png" }) {
 	const reads: string[] = [];
 	const images: { id: string; bytes: Uint8Array; mime: string; alt: string }[] = [];
-	const ctx: RenderContext = { ...renderDefaults,
+	const ctx: RenderContext = {
+		...renderDefaults,
 		id: "draft.panel.image",
 		view: "changes",
-		readFile(path) { reads.push(path); return file; },
+		readFile(path) {
+			reads.push(path);
+			return file;
+		},
 		image(id, bytes, mime, alt) {
 			images.push({ id, bytes, mime, alt });
 			return { id, k: "image", p: { alt, mime } };
 		},
-		svg() { throw new Error("Image component must not create SVGs"); },
+		svg() {
+			throw new Error("Image component must not create SVGs");
+		},
 	};
 	return { ctx, reads, images };
 }
 
 function visibleText(nodes: readonly TspNode[]): string[] {
-	return nodes.flatMap(node => {
+	return nodes.flatMap((node) => {
 		if (node.k !== "text") return [];
 		if (typeof node.p?.text === "string") return [node.p.text];
 		const spans: unknown = node.p?.spans;
@@ -43,8 +49,8 @@ function visibleText(nodes: readonly TspNode[]): string[] {
 }
 
 function expectIds(nodes: readonly TspNode[], prefix: string): void {
-	const ids = nodes.map(node => node.id);
-	expect(ids.every(id => id.startsWith(`${prefix}.`))).toBe(true);
+	const ids = nodes.map((node) => node.id);
+	expect(ids.every((id) => id.startsWith(`${prefix}.`))).toBe(true);
 	expect(new Set(ids).size).toBe(ids.length);
 }
 
@@ -63,7 +69,18 @@ describe("image syntax", () => {
 			expect(result.diagnostics[0]!.message).toContain("![图片内容](screenshots/example.png)");
 		});
 	}
-	for (const source of ["", "![alt]()", "![alt](   )", "[alt](example.png)", "before ![alt](example.png)", "![alt](example.png) after", "![a](a.png) ![b](b.png)", "![alt\ntext](example.png)", "![alt](example\n.png)", "![alt](example.png)\n"]) {
+	for (const source of [
+		"",
+		"![alt]()",
+		"![alt](   )",
+		"[alt](example.png)",
+		"before ![alt](example.png)",
+		"![alt](example.png) after",
+		"![a](a.png) ![b](b.png)",
+		"![alt\ntext](example.png)",
+		"![alt](example\n.png)",
+		"![alt](example.png)\n",
+	]) {
 		test(`rejects invalid single-line syntax ${JSON.stringify(source)}`, () => {
 			const result = parseImage(fence({ args: "", lines: [source], line: LINE }));
 			expect(result.ok).toBe(false);
@@ -83,9 +100,15 @@ describe("image syntax", () => {
 
 describe("local image rendering", () => {
 	const formats = [
-		["png", "image/png"], ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"],
-		["gif", "image/gif"], ["webp", "image/webp"], ["avif", "image/avif"],
-		["svg", "image/svg+xml"], ["PnG", "image/png"], ["JPEG", "image/jpeg"],
+		["png", "image/png"],
+		["jpg", "image/jpeg"],
+		["jpeg", "image/jpeg"],
+		["gif", "image/gif"],
+		["webp", "image/webp"],
+		["avif", "image/avif"],
+		["svg", "image/svg+xml"],
+		["PnG", "image/png"],
+		["JPEG", "image/jpeg"],
 	] as const;
 	for (const [extension, mime] of formats) {
 		test(`embeds ${extension} bytes and draws caption below`, () => {
@@ -98,7 +121,7 @@ describe("local image rendering", () => {
 			expect(fake.images).toHaveLength(1);
 			expect(fake.images[0]!.bytes).toBe(bytes);
 			expect(fake.images[0]).toMatchObject({ mime, alt: "页面截图", id: `${fake.ctx.id}.image` });
-			expect(result.nodes.map(node => node.k)).toEqual(["image", "text"]);
+			expect(result.nodes.map((node) => node.k)).toEqual(["image", "text"]);
 			expect(result.nodes[1]!.p).toEqual({ spans: [{ t: "页面截图", s: "muted" }] });
 			expectIds(result.nodes, fake.ctx.id);
 		});
@@ -123,9 +146,10 @@ describe("local image rendering", () => {
 	});
 	for (const failure of ["missing", "oversized", "unknown"] as const) {
 		test(`${failure} returns a render-time error and alt placeholder`, () => {
-			const file: FileRead = failure === "missing"
-				? { ok: false, error: "ENOENT" }
-				: { ok: true, bytes: new Uint8Array(failure === "oversized" ? LIMIT + 1 : 3), path: "/image.png" };
+			const file: FileRead =
+				failure === "missing"
+					? { ok: false, error: "ENOENT" }
+					: { ok: true, bytes: new Uint8Array(failure === "oversized" ? LIMIT + 1 : 3), path: "/image.png" };
 			const fake = fakeContext(file);
 			const path = failure === "unknown" ? "image.bmp" : "image.png";
 			const parsed = parseImage(fence({ args: "", lines: [`![图片占位](${path})`], line: LINE }));
@@ -150,13 +174,19 @@ describe("local image rendering", () => {
 });
 
 describe("remote and embedded URL images", () => {
-	for (const path of ["http://example.org/image.png", "https://example.org/image.png?x=1", "HTTPS://example.org/image.png", "data:image/png;base64,aGVsbG8=", "DATA:image/svg+xml,<svg/>" ]) {
+	for (const path of [
+		"http://example.org/image.png",
+		"https://example.org/image.png?x=1",
+		"HTTPS://example.org/image.png",
+		"data:image/png;base64,aGVsbG8=",
+		"DATA:image/svg+xml,<svg/>",
+	]) {
 		test(`shows alt and literal source without reading ${path}`, () => {
 			const fake = fakeContext();
 			const result = renderImage(parse(`![网络图片](${path})`), fake.ctx);
 			expect(fake.reads).toEqual([]);
 			expect(fake.images).toEqual([]);
-			expect(result.nodes.every(node => node.k === "text")).toBe(true);
+			expect(result.nodes.every((node) => node.k === "text")).toBe(true);
 			expect(visibleText(result.nodes)).toEqual(["网络图片", path]);
 			expect(result.diagnostics).toEqual([expect.objectContaining({ severity: "warning", component: "image", line: LINE })]);
 			expectIds(result.nodes, fake.ctx.id);
