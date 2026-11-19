@@ -18,8 +18,11 @@ function endpointIn(): string {
 }
 async function ask(endpoint: string, line: string): Promise<unknown> {
 	const connection = await IpcConnection.connect(endpoint, { framing: "lines" });
-	const { promise, resolve, reject } = Promise.withResolvers<unknown>();
-	connection.start(text => resolve(JSON.parse(text)), () => connection.destroy());
+	const { promise, resolve } = Promise.withResolvers<unknown>();
+	connection.start(
+		(text) => resolve(JSON.parse(text)),
+		() => connection.destroy(),
+	);
 	connection.send(line);
 	return promise;
 }
@@ -27,11 +30,16 @@ async function ask(endpoint: string, line: string): Promise<unknown> {
 describe("pane endpoint", () => {
 	test("answers requests, refuses malformed ones, and a second listener never takes a live endpoint", async () => {
 		const endpoint = endpointIn();
-		const first = await listenPane(endpoint, async request => request.op === "ping" ? { ok: true, session: "s1", cwd: "/w" } : { ok: false, error: { code: "Busy", message: request.doc } });
+		const first = await listenPane(endpoint, async (request) =>
+			request.op === "ping" ? { ok: true, session: "s1", cwd: "/w" } : { ok: false, error: { code: "Busy", message: request.doc } },
+		);
 		expect(first).not.toBeNull();
 		listeners.push(first!);
 		expect(await ask(endpoint, JSON.stringify({ op: "ping" }))).toEqual({ ok: true, session: "s1", cwd: "/w" });
-		expect(await ask(endpoint, JSON.stringify({ op: "attach", doc: "/p.yaml" }))).toEqual({ ok: false, error: { code: "Busy", message: "/p.yaml" } });
+		expect(await ask(endpoint, JSON.stringify({ op: "attach", doc: "/p.yaml" }))).toEqual({
+			ok: false,
+			error: { code: "Busy", message: "/p.yaml" },
+		});
 		expect(await ask(endpoint, JSON.stringify({ op: "nope" }))).toMatchObject({ ok: false, error: { code: "BadRequest" } });
 		expect(await listenPane(endpoint, async () => ({ ok: true, session: "s2", cwd: "/x" }))).toBeNull();
 		first!.close();
@@ -40,7 +48,14 @@ describe("pane endpoint", () => {
 	});
 	test("takes over the endpoint a killed session left behind", async () => {
 		const endpoint = endpointIn();
-		const child = Bun.spawn([process.execPath, "-e", `import { IpcServer } from "@oh-my-pi/pi-natives"; await IpcServer.listen(${JSON.stringify(endpoint)}, { framing: "lines" }, () => {}); console.log("ready")`], { stdout: "pipe", stderr: "inherit" });
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				"-e",
+				`import { IpcServer } from "@oh-my-pi/pi-natives"; await IpcServer.listen(${JSON.stringify(endpoint)}, { framing: "lines" }, () => {}); console.log("ready")`,
+			],
+			{ stdout: "pipe", stderr: "inherit" },
+		);
 		const reader = child.stdout.getReader();
 		expect(new TextDecoder().decode((await reader.read()).value)).toContain("ready");
 		reader.releaseLock();

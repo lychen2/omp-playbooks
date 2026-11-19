@@ -1,13 +1,44 @@
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
 import {
-	parseBlockId, parseLaunchId, parseRunId,
-	type Block, type BlockContent, type BlockId, type BlockResult, type CompileError, type CompileResult, type Revision,
-	type DocRef, type EntryData, type EntryOrigin, type FetchOutcome,
-	type JudgeReport, type Launch, type LaunchId, type PlaybookDoc, type Progress, type RunId,
-	type RunMeta, type Source, type Status, type TimelineEntry,
+	appendFileSync,
+	closeSync,
+	mkdirSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	readSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { tr } from "../../omomp-shared/i18n";
+import {
+	type Block,
+	type BlockContent,
+	type BlockId,
+	type BlockResult,
+	type CompileError,
+	type CompileResult,
+	type DocRef,
+	type EntryData,
+	type EntryOrigin,
+	type FetchOutcome,
+	type JudgeReport,
+	type Launch,
+	type LaunchId,
+	type PlaybookDoc,
+	type Progress,
+	parseBlockId,
+	parseLaunchId,
+	parseRunId,
+	type Revision,
+	type RunId,
+	type RunMeta,
+	type Source,
+	type Status,
+	type TimelineEntry,
 } from "../domain/model";
-import { tr } from "../i18n";
 import type { LaunchChanges, ParsedFile, ServiceRecord, Store } from "../domain/ports";
 
 // Only boundary decoders inspect untrusted maps. Domain objects are constructed below.
@@ -108,12 +139,14 @@ function agentName(value: unknown): string {
 /** Content fields as stored in Run log entries; execution contract keys only when set. */
 function contentFields(content: BlockContent): Record<string, string | boolean> {
 	switch (content.kind) {
-		case "task": return {
-			body: content.body,
-			...(content.agent === undefined ? {} : { agent: content.agent }),
-			...(content.isolated === undefined ? {} : { isolated: content.isolated }),
-		};
-		case "design": return { requirement: content.requirement, design: content.design };
+		case "task":
+			return {
+				body: content.body,
+				...(content.agent === undefined ? {} : { agent: content.agent }),
+				...(content.isolated === undefined ? {} : { isolated: content.isolated }),
+			};
+		case "design":
+			return { requirement: content.requirement, design: content.design };
 	}
 }
 /**
@@ -151,7 +184,8 @@ function decodeRun(value: unknown): RunMeta {
 	const finishedAt = nullable(v.finished_at, timestamp);
 	const updateDue = nullable(v.update_due, timestamp);
 	if (status === "running" && finishedAt !== null) throw new Error("Running Run cannot have a finish time");
-	if (status === "finished" && (finishedAt === null || updateDue !== null)) throw new Error("Finished Run requires a finish time and no update due");
+	if (status === "finished" && (finishedAt === null || updateDue !== null))
+		throw new Error("Finished Run requires a finish time and no update due");
 	const updateEvery = nullable(v.update_every, number);
 	if (updateEvery !== null && updateEvery <= 0) throw new Error("Update interval must be positive");
 	return { id: runId(v.id), name: string(v.name), status, startedAt: timestamp(v.started_at), finishedAt, updateEvery, updateDue };
@@ -188,7 +222,8 @@ function parseFailure(error: string): string {
 	if (error === "Expected an ISO 8601 timestamp") return tr(error, "应为 ISO 8601 时间戳");
 	if (error === "Invalid timestamp") return tr(error, "无效的时间戳");
 	if (error === "Invalid calendar date") return tr(error, "无效的日历日期");
-	if (error === "A block needs body (task block) or requirement and design (design block)") return tr(error, "块需要 body（任务块）或 requirement 和 design（设计块）");
+	if (error === "A block needs body (task block) or requirement and design (design block)")
+		return tr(error, "块需要 body（任务块）或 requirement 和 design（设计块）");
 	if (error === "agent must not be blank") return tr(error, "agent 不能为空");
 	if (error === "task: false is only valid on a task block") return tr(error, "task: false 只对任务块有效");
 	if (error === "task may only be false") return tr(error, "task 只能是 false");
@@ -214,33 +249,43 @@ function quoted(text: string): string {
 	if (!text.isWellFormed()) throw new RangeError("YAML text must be well-formed Unicode");
 	// JSON string escapes are also YAML double-quoted escapes. Escape YAML's
 	// additional line-break characters so parsing cannot normalize their text.
-	return JSON.stringify(text).replace(/[\u0085\u2028\u2029\uFFFE\uFFFF]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+	return JSON.stringify(text).replace(
+		/[\u0085\u2028\u2029\uFFFE\uFFFF]/g,
+		(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+	);
 }
 function bodyScalar(body: string): string {
 	if (!body.isWellFormed()) throw new RangeError("Block body must be well-formed Unicode");
 	// YAML normalizes CR and several Unicode separators; non-printable characters
 	// cannot be represented literally. Escape those strings while ordinary
 	// Markdown remains line-diffable.
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: the class deliberately covers every control character YAML's plain scalar cannot represent
 	if (/[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029\uFFFE\uFFFF]/.test(body)) return `${quoted(body)}\n`;
 	const trailing = body.match(/\n*$/)?.[0].length ?? 0;
 	const indicator = trailing === 0 ? "-" : trailing > 1 || /^\n+$/.test(body) ? "+" : "";
 	const content = body.endsWith("\n") ? body.slice(0, -1) : body;
-	return `|2${indicator}\n${content.split("\n").map(line => `      ${line}\n`).join("")}`;
+	return `|2${indicator}\n${content
+		.split("\n")
+		.map((line) => `      ${line}\n`)
+		.join("")}`;
 }
 /** Content fields as YAML lines of a block mapping; a task block without a contract is written as before. */
 function contentYaml(content: BlockContent): string {
 	switch (content.kind) {
 		case "task":
-			return `    body: ${bodyScalar(content.body)}`
-				+ (content.agent === undefined ? "" : `    agent: ${quoted(content.agent)}\n`)
-				+ (content.isolated === undefined ? "" : `    isolated: ${content.isolated}\n`);
-		case "design": return `    requirement: ${bodyScalar(content.requirement)}    design: ${bodyScalar(content.design)}`;
+			return (
+				`    body: ${bodyScalar(content.body)}` +
+				(content.agent === undefined ? "" : `    agent: ${quoted(content.agent)}\n`) +
+				(content.isolated === undefined ? "" : `    isolated: ${content.isolated}\n`)
+			);
+		case "design":
+			return `    requirement: ${bodyScalar(content.requirement)}    design: ${bodyScalar(content.design)}`;
 	}
 }
 /** Progress as YAML lines of a block mapping. */
 function progressYaml(progress: Progress): string {
 	if (progress.kind === "untracked") return "    task: false\n";
-	return `    status: ${progress.status}\n` + (progress.report === null ? "" : `    report: ${bodyScalar(progress.report)}`);
+	return `    status: ${progress.status}\n${progress.report === null ? "" : `    report: ${bodyScalar(progress.report)}`}`;
 }
 function serialize(doc: PlaybookDoc, run: RunMeta | null): string {
 	let text = `title: ${quoted(doc.title)}\nblocks:${doc.blocks.length === 0 ? " []" : ""}\n`;
@@ -250,7 +295,7 @@ function serialize(doc: PlaybookDoc, run: RunMeta | null): string {
 		text += progressYaml(block.progress);
 	}
 	if (run !== null) {
-		const iso = (value: number | null): string => value === null ? "null" : quoted(new Date(value).toISOString());
+		const iso = (value: number | null): string => (value === null ? "null" : quoted(new Date(value).toISOString()));
 		text += `run:\n  id: ${run.id}\n  name: ${quoted(run.name)}\n  status: ${run.status}\n  started_at: ${iso(run.startedAt)}\n  finished_at: ${iso(run.finishedAt)}\n  update_every: ${run.updateEvery}\n  update_due: ${iso(run.updateDue)}\n`;
 	}
 	return text;
@@ -259,41 +304,108 @@ function serialize(doc: PlaybookDoc, run: RunMeta | null): string {
 function decodeReport(value: unknown): JudgeReport {
 	const v = fields(value);
 	const kind = choice(v.kind, ["answers", "judge_unavailable"]);
-	if (kind === "judge_unavailable") { keys(v, ["kind"]); return { kind }; }
+	if (kind === "judge_unavailable") {
+		keys(v, ["kind"]);
+		return { kind };
+	}
 	keys(v, ["kind", "answers"]);
 	const answers: Record<string, number> = {};
-	for (const [key, answer] of Object.entries(fields(v.answers))) Object.defineProperty(answers, key, { value: number(answer), enumerable: true, writable: true, configurable: true });
+	for (const [key, answer] of Object.entries(fields(v.answers)))
+		Object.defineProperty(answers, key, { value: number(answer), enumerable: true, writable: true, configurable: true });
 	return { kind, answers };
 }
 function decodeEntryProgress(value: unknown): Progress {
 	const v = fields(value);
 	const kind = choice(v.kind, ["untracked", "tracked"]);
-	if (kind === "untracked") { keys(v, ["kind"]); return { kind }; }
+	if (kind === "untracked") {
+		keys(v, ["kind"]);
+		return { kind };
+	}
 	keys(v, ["kind", "status", "report"]);
 	return { kind, status: status(v.status), report: nullable(v.report, string) };
 }
 function decodeEntryData(type: unknown, value: unknown): EntryData {
 	const v = fields(value);
-	const tag = choice(type, ["run_started", "run_finished", "block_edited", "block_added", "block_deleted", "content_replaced", "blocks_reordered", "progress_changed", "launch_created", "agent_bound", "launch_closed", "event_sent", "interrupted", "check_reported", "post", "update_due", "update_snoozed"]);
+	const tag = choice(type, [
+		"run_started",
+		"run_finished",
+		"block_edited",
+		"block_added",
+		"block_deleted",
+		"content_replaced",
+		"blocks_reordered",
+		"progress_changed",
+		"launch_created",
+		"agent_bound",
+		"launch_closed",
+		"event_sent",
+		"interrupted",
+		"check_reported",
+		"post",
+		"update_due",
+		"update_snoozed",
+	]);
 	switch (tag) {
-		case "run_started": keys(v, ["name"]); return { type: tag, name: string(v.name) };
-		case "run_finished": keys(v, []); return { type: tag };
-		case "block_edited": keys(v, ["block", "field", "text", "edit"]); return { type: tag, block: blockId(v.block), field: choice(v.field, ["title", "body", "requirement", "design"]), text: string(v.text), edit: positive(v.edit) };
-		case "block_added": case "block_deleted": return { type: tag, content: decodeContent(v, ["block", "title"]), block: blockId(v.block), title: string(v.title) };
-		case "content_replaced": return { type: tag, content: decodeContent(v, ["block"]), block: blockId(v.block) };
-		case "blocks_reordered": keys(v, ["order"]); return { type: tag, order: list(v.order, blockId) };
-		case "progress_changed": keys(v, ["block", "progress"]); return { type: tag, block: blockId(v.block), progress: decodeEntryProgress(v.progress) };
-		case "launch_created": keys(v, ["launch", "kind", "blocks"]); return { type: tag, launch: launchId(v.launch), kind: choice(v.kind, ["prompt", "orchestration"]), blocks: list(v.blocks, blockId) };
-		case "agent_bound": keys(v, ["launch", "agent"]); return { type: tag, launch: launchId(v.launch), agent: string(v.agent) };
-		case "launch_closed": keys(v, ["launch"]); return { type: tag, launch: launchId(v.launch) };
-		case "event_sent": keys(v, ["event", "data"]); return { type: tag, event: string(v.event), data: v.data };
-		case "interrupted": keys(v, ["block", "request"]); return { type: tag, block: blockId(v.block), request: string(v.request) };
-		case "check_reported": keys(v, ["blocks", "version", "result"]); return { type: tag, blocks: list(v.blocks, blockId), version: string(v.version), result: decodeReport(v.result) };
+		case "run_started":
+			keys(v, ["name"]);
+			return { type: tag, name: string(v.name) };
+		case "run_finished":
+			keys(v, []);
+			return { type: tag };
+		case "block_edited":
+			keys(v, ["block", "field", "text", "edit"]);
+			return {
+				type: tag,
+				block: blockId(v.block),
+				field: choice(v.field, ["title", "body", "requirement", "design"]),
+				text: string(v.text),
+				edit: positive(v.edit),
+			};
+		case "block_added":
+		case "block_deleted":
+			return { type: tag, content: decodeContent(v, ["block", "title"]), block: blockId(v.block), title: string(v.title) };
+		case "content_replaced":
+			return { type: tag, content: decodeContent(v, ["block"]), block: blockId(v.block) };
+		case "blocks_reordered":
+			keys(v, ["order"]);
+			return { type: tag, order: list(v.order, blockId) };
+		case "progress_changed":
+			keys(v, ["block", "progress"]);
+			return { type: tag, block: blockId(v.block), progress: decodeEntryProgress(v.progress) };
+		case "launch_created":
+			keys(v, ["launch", "kind", "blocks"]);
+			return { type: tag, launch: launchId(v.launch), kind: choice(v.kind, ["prompt", "orchestration"]), blocks: list(v.blocks, blockId) };
+		case "agent_bound":
+			keys(v, ["launch", "agent"]);
+			return { type: tag, launch: launchId(v.launch), agent: string(v.agent) };
+		case "launch_closed":
+			keys(v, ["launch"]);
+			return { type: tag, launch: launchId(v.launch) };
+		case "event_sent":
+			keys(v, ["event", "data"]);
+			return { type: tag, event: string(v.event), data: v.data };
+		case "interrupted":
+			keys(v, ["block", "request"]);
+			return { type: tag, block: blockId(v.block), request: string(v.request) };
+		case "check_reported":
+			keys(v, ["blocks", "version", "result"]);
+			return { type: tag, blocks: list(v.blocks, blockId), version: string(v.version), result: decodeReport(v.result) };
 		case "post": {
 			keys(v, ["kind", "text"], ["block", "launch", "quote", "session"]);
-			return { type: tag, kind: choice(v.kind, ["update", "result", "failure", "retrospective"]), text: string(v.text), ...(v.block === undefined ? {} : { block: blockId(v.block) }), ...(v.launch === undefined ? {} : { launch: launchId(v.launch) }), ...(v.quote === undefined ? {} : { quote: string(v.quote) }), ...(v.session === undefined ? {} : { session: string(v.session) }) };
+			return {
+				type: tag,
+				kind: choice(v.kind, ["update", "result", "failure", "retrospective"]),
+				text: string(v.text),
+				...(v.block === undefined ? {} : { block: blockId(v.block) }),
+				...(v.launch === undefined ? {} : { launch: launchId(v.launch) }),
+				...(v.quote === undefined ? {} : { quote: string(v.quote) }),
+				...(v.session === undefined ? {} : { session: string(v.session) }),
+			};
 		}
-		case "update_due": case "update_snoozed": keys(v, ["due"]); return { type: tag, due: number(v.due) };
+		case "update_due":
+		case "update_snoozed":
+			keys(v, ["due"]);
+			return { type: tag, due: number(v.due) };
 	}
 }
 function decodeEntry(value: unknown): TimelineEntry {
@@ -306,9 +418,15 @@ function decodeSource(value: unknown): Source {
 	const kind = choice(v.kind, ["block", "result", "external"]);
 	const base = { target: string(v.target), expression: nullable(v.expression, string) };
 	switch (kind) {
-		case "block": keys(v, ["kind", "target", "expression"]); return { kind, ...base };
-		case "result": keys(v, ["kind", "target", "expression", "seq", "origin", "launch"]); return { kind, ...base, seq: positive(v.seq), origin: origin(v.origin), launch: nullable(v.launch, launchId) };
-		case "external": keys(v, ["kind", "target", "expression", "fetchedAt"]); return { kind, ...base, fetchedAt: number(v.fetchedAt) };
+		case "block":
+			keys(v, ["kind", "target", "expression"]);
+			return { kind, ...base };
+		case "result":
+			keys(v, ["kind", "target", "expression", "seq", "origin", "launch"]);
+			return { kind, ...base, seq: positive(v.seq), origin: origin(v.origin), launch: nullable(v.launch, launchId) };
+		case "external":
+			keys(v, ["kind", "target", "expression", "fetchedAt"]);
+			return { kind, ...base, fetchedAt: number(v.fetchedAt) };
 	}
 }
 function decodeCompileError(value: unknown): CompileError {
@@ -316,20 +434,46 @@ function decodeCompileError(value: unknown): CompileError {
 	const site = fields(v.at);
 	keys(site, ["block", "reference"]);
 	const at = { block: blockId(site.block), reference: string(site.reference) };
-	const kind = choice(v.kind, ["UnknownBlock", "UnknownTarget", "BadExpression", "Cycle", "TooDeep", "NoResult", "FetchFailed", "UnknownSlot"]);
+	const kind = choice(v.kind, [
+		"UnknownBlock",
+		"UnknownTarget",
+		"BadExpression",
+		"Cycle",
+		"TooDeep",
+		"NoResult",
+		"FetchFailed",
+		"UnknownSlot",
+	]);
 	switch (kind) {
-		case "UnknownBlock": case "NoResult": keys(v, ["kind", "block", "at"]); return { kind, block: blockId(v.block), at };
-		case "UnknownTarget": case "TooDeep": keys(v, ["kind", "at"]); return { kind, at };
-		case "BadExpression": keys(v, ["kind", "reason", "at"]); return { kind, reason: string(v.reason), at };
-		case "Cycle": keys(v, ["kind", "path", "at"]); return { kind, path: list(v.path, blockId), at };
-		case "FetchFailed": keys(v, ["kind", "target", "error", "at"]); return { kind, target: string(v.target), error: string(v.error), at };
-		case "UnknownSlot": keys(v, ["kind", "block", "slot", "at"]); return { kind, block: blockId(v.block), slot: string(v.slot), at };
+		case "UnknownBlock":
+		case "NoResult":
+			keys(v, ["kind", "block", "at"]);
+			return { kind, block: blockId(v.block), at };
+		case "UnknownTarget":
+		case "TooDeep":
+			keys(v, ["kind", "at"]);
+			return { kind, at };
+		case "BadExpression":
+			keys(v, ["kind", "reason", "at"]);
+			return { kind, reason: string(v.reason), at };
+		case "Cycle":
+			keys(v, ["kind", "path", "at"]);
+			return { kind, path: list(v.path, blockId), at };
+		case "FetchFailed":
+			keys(v, ["kind", "target", "error", "at"]);
+			return { kind, target: string(v.target), error: string(v.error), at };
+		case "UnknownSlot":
+			keys(v, ["kind", "block", "slot", "at"]);
+			return { kind, block: blockId(v.block), slot: string(v.slot), at };
 	}
 }
 function decodeCompile(value: unknown): CompileResult {
 	const v = fields(value);
 	const kind = choice(v.kind, ["Ok", "Err"]);
-	if (kind === "Err") { keys(v, ["kind", "error"]); return { kind, error: decodeCompileError(v.error) }; }
+	if (kind === "Err") {
+		keys(v, ["kind", "error"]);
+		return { kind, error: decodeCompileError(v.error) };
+	}
 	keys(v, ["kind", "text", "sources"]);
 	return { kind, text: string(v.text), sources: list(v.sources, decodeSource) };
 }
@@ -337,15 +481,36 @@ function decodeFetch(value: unknown): FetchOutcome {
 	const v = fields(value);
 	const ok = boolean(v.ok);
 	const at = number(v.at);
-	if (!ok) { keys(v, ["ok", "at", "error"]); return { ok, at, error: string(v.error) }; }
+	if (!ok) {
+		keys(v, ["ok", "at", "error"]);
+		return { ok, at, error: string(v.error) };
+	}
 	keys(v, ["ok", "at", "value"]);
 	const payload = fields(v.value);
 	const kind = choice(payload.kind, ["file", "issue"]);
-	if (kind === "file") { keys(payload, ["kind", "text"]); return { ok, at, value: { kind, text: string(payload.text) } }; }
+	if (kind === "file") {
+		keys(payload, ["kind", "text"]);
+		return { ok, at, value: { kind, text: string(payload.text) } };
+	}
 	keys(payload, ["kind", "issue"]);
 	const issue = fields(payload.issue);
 	keys(issue, ["title", "body", "comments"]);
-	return { ok, at, value: { kind, issue: { title: string(issue.title), body: string(issue.body), comments: list(issue.comments, item => { const c = fields(item); keys(c, ["author", "createdAt", "body"]); return { author: string(c.author), createdAt: string(c.createdAt), body: string(c.body) }; }) } } };
+	return {
+		ok,
+		at,
+		value: {
+			kind,
+			issue: {
+				title: string(issue.title),
+				body: string(issue.body),
+				comments: list(issue.comments, (item) => {
+					const c = fields(item);
+					keys(c, ["author", "createdAt", "body"]);
+					return { author: string(c.author), createdAt: string(c.createdAt), body: string(c.body) };
+				}),
+			},
+		},
+	};
 }
 function tuple<A, B>(value: unknown, first: (value: unknown) => A, second: (value: unknown) => B): readonly [A, B] {
 	if (!Array.isArray(value) || value.length !== 2) throw new Error("Expected a pair");
@@ -357,13 +522,17 @@ function decodeBlockResult(value: unknown): BlockResult {
 	return { text: string(v.text), at: number(v.at), seq: positive(v.seq), origin: origin(v.origin), launch: nullable(v.launch, launchId) };
 }
 function decodeFetches(value: unknown): (readonly [string, FetchOutcome])[] {
-	return list(value, pair => tuple(pair, string, decodeFetch));
+	return list(value, (pair) => tuple(pair, string, decodeFetch));
 }
 function decodeDirty(value: unknown): (readonly [BlockId, number])[] {
-	return list(value, pair => tuple(pair, blockId, positive));
+	return list(value, (pair) => tuple(pair, blockId, positive));
 }
 function decodeClosed(value: unknown): Launch["closed"] {
-	return nullable(value, closed => { const c = fields(closed); keys(c, ["at", "by"]); return { at: number(c.at), by: choice(c.by, ["coordinator", "human", "run_finished"]) }; });
+	return nullable(value, (closed) => {
+		const c = fields(closed);
+		keys(c, ["at", "by"]);
+		return { at: number(c.at), by: choice(c.by, ["coordinator", "human", "run_finished"]) };
+	});
 }
 function checkBaselines(launch: Launch): Launch {
 	if (launch.baselines[0] !== launch.snapshot.result.text) throw new Error("First baseline must equal snapshot text");
@@ -379,9 +548,21 @@ function decodeLaunch(value: unknown): Launch {
 	const blocks = list(v.blocks, blockId);
 	if (blocks.length === 0) throw new Error("Launch requires blocks");
 	return checkBaselines({
-		id: launchId(v.id), run: nullable(v.run, runId), session: string(v.session), blocks, kind: choice(v.kind, ["prompt", "orchestration"]),
-		snapshot: { result, fetches: decodeFetches(snapshot.fetches), results: list(snapshot.results, pair => tuple(pair, blockId, decodeBlockResult)) },
-		agents: list(v.agents, string), baselines: list(v.baselines, string), notified: nullable(v.notified, decodeCompile), dirty: decodeDirty(v.dirty), fetches: decodeFetches(v.fetches),
+		id: launchId(v.id),
+		run: nullable(v.run, runId),
+		session: string(v.session),
+		blocks,
+		kind: choice(v.kind, ["prompt", "orchestration"]),
+		snapshot: {
+			result,
+			fetches: decodeFetches(snapshot.fetches),
+			results: list(snapshot.results, (pair) => tuple(pair, blockId, decodeBlockResult)),
+		},
+		agents: list(v.agents, string),
+		baselines: list(v.baselines, string),
+		notified: nullable(v.notified, decodeCompile),
+		dirty: decodeDirty(v.dirty),
+		fetches: decodeFetches(v.fetches),
 		closed: decodeClosed(v.closed),
 	});
 }
@@ -406,9 +587,12 @@ function decodeServiceRecord(value: unknown): ServiceRecord {
 	keys(v, ["kind", "id"]);
 	const kind = choice(v.kind, ["block", "run", "launch"]);
 	switch (kind) {
-		case "block": return { kind, id: blockId(v.id) };
-		case "run": return { kind, id: runId(v.id) };
-		case "launch": return { kind, id: launchId(v.id) };
+		case "block":
+			return { kind, id: blockId(v.id) };
+		case "run":
+			return { kind, id: runId(v.id) };
+		case "launch":
+			return { kind, id: launchId(v.id) };
 	}
 }
 function missing(error: unknown): boolean {
@@ -421,7 +605,12 @@ const LINE_CHUNK_BYTES = 64 * 1024;
  */
 function eachLine(path: string, visit: (value: unknown) => void): void {
 	let fd: number;
-	try { fd = openSync(path, "r"); } catch (error) { if (missing(error)) return; throw error; }
+	try {
+		fd = openSync(path, "r");
+	} catch (error) {
+		if (missing(error)) return;
+		throw error;
+	}
 	const chunk = Buffer.allocUnsafe(LINE_CHUNK_BYTES);
 	// Bytes of the current line that arrived in earlier chunks (copied out, since `chunk` is reused).
 	const carried: Buffer[] = [];
@@ -430,8 +619,11 @@ function eachLine(path: string, visit: (value: unknown) => void): void {
 		number++;
 		const bytes = carried.length === 0 ? tail : Buffer.concat([...carried, tail]);
 		carried.length = 0;
-		try { visit(JSON.parse(bytes.toString("utf8"))); }
-		catch (error) { throw new Error(`${path}:${number}: ${error instanceof Error ? error.message : String(error)}`); }
+		try {
+			visit(JSON.parse(bytes.toString("utf8")));
+		} catch (error) {
+			throw new Error(`${path}:${number}: ${error instanceof Error ? error.message : String(error)}`);
+		}
 	};
 	try {
 		for (;;) {
@@ -452,7 +644,7 @@ function eachLine(path: string, visit: (value: unknown) => void): void {
 }
 function readLines<T>(path: string, decode: (value: unknown) => T): T[] {
 	const values: T[] = [];
-	eachLine(path, value => values.push(decode(value)));
+	eachLine(path, (value) => values.push(decode(value)));
 	return values;
 }
 function append(path: string, value: unknown): void {
@@ -471,22 +663,33 @@ export function createStore(templatePath: string): Store {
 	const path = resolve(templatePath);
 	const baseDir = dirname(path);
 	const runsDir = join(baseDir, `${basename(path).replace(/\.yaml$/, "")}.runs`);
-	const filePath = (ref: DocRef): string => ref.kind === "template" ? path : join(runsDir, `${runId(ref.run)}.yaml`);
-	const logPath = (ref: DocRef): string => ref.kind === "template" ? `${path}.log.jsonl` : join(runsDir, `${runId(ref.run)}.jsonl`);
-	const revisionsPath = (ref: DocRef): string => ref.kind === "template" ? `${path}.revisions.jsonl` : join(runsDir, `${runId(ref.run)}.revisions.jsonl`);
+	const filePath = (ref: DocRef): string => (ref.kind === "template" ? path : join(runsDir, `${runId(ref.run)}.yaml`));
+	const logPath = (ref: DocRef): string => (ref.kind === "template" ? `${path}.log.jsonl` : join(runsDir, `${runId(ref.run)}.jsonl`));
+	const revisionsPath = (ref: DocRef): string =>
+		ref.kind === "template" ? `${path}.revisions.jsonl` : join(runsDir, `${runId(ref.run)}.revisions.jsonl`);
 	return {
-		templatePath: path, baseDir, serialize, parse, path: filePath,
+		templatePath: path,
+		baseDir,
+		serialize,
+		parse,
+		path: filePath,
 		readTemplate() {
 			try {
 				const parsed = parse(readFileSync(path, "utf8"), false);
 				return parsed.ok ? parsed : { ...parsed, error: parseFailure(parsed.error) };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : String(error) };
 			}
-			catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
 		},
 		runIds() {
 			let names: string[];
-			try { names = readdirSync(runsDir); } catch (error) { if (missing(error)) return []; throw error; }
-			return names.sort().flatMap(name => name.endsWith(".yaml") ? [runId(name.slice(0, -5))] : []);
+			try {
+				names = readdirSync(runsDir);
+			} catch (error) {
+				if (missing(error)) return [];
+				throw error;
+			}
+			return names.sort().flatMap((name) => (name.endsWith(".yaml") ? [runId(name.slice(0, -5))] : []));
 		},
 		readRun(id) {
 			const name = `${id}.yaml`;
@@ -494,39 +697,53 @@ export function createStore(templatePath: string): Store {
 			try {
 				const value = parse(readFileSync(join(runsDir, name), "utf8"), true);
 				parsed = value.ok ? value : { ...value, error: parseFailure(value.error) };
+			} catch (error) {
+				parsed = { ok: false, error: error instanceof Error ? error.message : String(error) };
 			}
-			catch (error) { parsed = { ok: false, error: error instanceof Error ? error.message : String(error) }; }
-			return parsed.ok && parsed.run?.id !== id ? { ok: false, error: tr(`Run id does not match filename: ${name}`, `Run ID 与文件名不匹配：${name}`) } : parsed;
+			return parsed.ok && parsed.run?.id !== id
+				? { ok: false, error: tr(`Run id does not match filename: ${name}`, `Run ID 与文件名不匹配：${name}`) }
+				: parsed;
 		},
 		write(ref, text) {
 			const destination = filePath(ref);
 			mkdirSync(dirname(destination), { recursive: true });
 			const temporary = join(dirname(destination), `.${basename(destination)}.${crypto.randomUUID()}.tmp`);
 			let fd: number | null = null;
+			let cleanupError: unknown;
 			try {
 				fd = openSync(temporary, "wx", 0o600);
 				writeFileSync(fd, text, "utf8");
-				closeSync(fd); fd = null;
+				closeSync(fd);
+				fd = null;
 				renameSync(temporary, destination);
 			} finally {
-				if (fd !== null) closeSync(fd);
-				try { unlinkSync(temporary); } catch (error) { if (!missing(error)) throw error; }
+				try {
+					if (fd !== null) closeSync(fd);
+					unlinkSync(temporary);
+				} catch (error) {
+					if (!missing(error)) cleanupError = error;
+				}
 			}
+			if (cleanupError !== undefined) throw cleanupError;
 		},
 		mtime(ref) {
 			return statSync(filePath(ref), { throwIfNoEntry: false })?.mtimeMs ?? null;
 		},
 		readText(ref) {
-			try { return readFileSync(filePath(ref), "utf8"); }
-			catch (error) { if (missing(error)) return null; throw error; }
+			try {
+				return readFileSync(filePath(ref), "utf8");
+			} catch (error) {
+				if (missing(error)) return null;
+				throw error;
+			}
 		},
 		readServiceRecords: () => readLines(`${path}.pb.jsonl`, decodeServiceRecord),
-		appendServiceRecord: record => append(`${path}.pb.jsonl`, record),
+		appendServiceRecord: (record) => append(`${path}.pb.jsonl`, record),
 		readLog(ref) {
 			const entries: TimelineEntry[] = [];
 			const launches = new Map<LaunchId, Launch>();
 			const run = ref.kind === "template" ? null : ref.run;
-			eachLine(logPath(ref), value => {
+			eachLine(logPath(ref), (value) => {
 				const v = fields(value);
 				if (Object.hasOwn(v, "entry")) {
 					keys(v, ["entry"]);
@@ -549,13 +766,18 @@ export function createStore(templatePath: string): Store {
 			return { entries, launches };
 		},
 		appendEntry(ref, entry) {
-			append(logPath(ref), { entry: { seq: entry.seq, at: entry.at, type: entry.data.type, origin: entry.origin, data: encodeEntryData(entry.data) } });
+			append(logPath(ref), {
+				entry: { seq: entry.seq, at: entry.at, type: entry.data.type, origin: entry.origin, data: encodeEntryData(entry.data) },
+			});
 		},
 		appendLaunch: (ref, launch) => append(logPath(ref), { launch }),
 		appendLaunchUpdate: (ref, id, changes) => append(logPath(ref), { launch_update: { id, ...changes } }),
 		readRevisions(ref) {
 			const revisions = readLines(revisionsPath(ref), decodeRevision);
-			revisions.forEach((revision, index) => { if (index > 0 && revision.seq <= revisions[index - 1]!.seq) throw new Error(`${revisionsPath(ref)}: revision sequence must increase`); });
+			revisions.forEach((revision, index) => {
+				if (index > 0 && revision.seq <= revisions[index - 1]!.seq)
+					throw new Error(`${revisionsPath(ref)}: revision sequence must increase`);
+			});
 			return revisions;
 		},
 		appendRevision: (ref, revision) => append(revisionsPath(ref), revision),

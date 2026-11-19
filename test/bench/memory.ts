@@ -16,15 +16,25 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { IpcConnection, IpcServer, ipcEndpoint } from "@oh-my-pi/pi-natives";
-import type { Block, BlockId, DocRef, EntryData, Launch, LaunchId, PlaybookDoc, RunId, RunMeta, TimelineEntry } from "../../src/domain/model";
+import type {
+	Block,
+	BlockId,
+	DocRef,
+	EntryData,
+	Launch,
+	LaunchId,
+	PlaybookDoc,
+	RunId,
+	RunMeta,
+	TimelineEntry,
+} from "../../src/domain/model";
 import type { Store } from "../../src/domain/ports";
-
+import type * as ClientModule from "../../src/extension/client";
 import type * as ChecksModule from "../../src/service/checks";
 import type * as CoreModule from "../../src/service/core";
 import type * as ReferencesModule from "../../src/service/references";
 import type * as SocketModule from "../../src/service/socket";
 import type * as StoreModule from "../../src/service/store";
-import type * as ClientModule from "../../src/extension/client";
 import { createStore as createFixtureStore } from "../../src/service/store";
 
 const HERE = resolve(import.meta.dir, "../..");
@@ -65,7 +75,11 @@ function blocks(count: number, bodySize: number, finishedStatus: boolean): Block
 			id,
 			title: `Block ${index + 1}`,
 			content: { kind: "task", body: filler(index, bodySize) },
-			progress: { kind: "tracked", status: finishedStatus && index % 3 === 0 ? "done" : "todo", report: finishedStatus && index % 3 === 0 ? `Report ${index + 1}` : null },
+			progress: {
+				kind: "tracked",
+				status: finishedStatus && index % 3 === 0 ? "done" : "todo",
+				report: finishedStatus && index % 3 === 0 ? `Report ${index + 1}` : null,
+			},
 		} satisfies Block;
 	});
 }
@@ -73,23 +87,39 @@ function blocks(count: number, bodySize: number, finishedStatus: boolean): Block
 function entryData(index: number, run: RunId | null, launches: readonly LaunchId[]): EntryData {
 	const block = `b${(index % 100) + 1}` as BlockId;
 	switch (index % 8) {
-		case 0: return { type: "post", kind: "update", text: filler(index, 200) };
-		case 1: return { type: "post", kind: "result", text: filler(index + 1, 400), block };
-		case 2: return { type: "block_edited", block, field: "body", text: filler(index + 2, 600), edit: index + 1 };
-		case 3: return { type: "event_sent", event: "launch_requested", data: { ...(run === null ? {} : { run }), blocks: [block] } };
-		case 4: return { type: "launch_created", launch: launches[index % launches.length]!, kind: "prompt", blocks: [block] };
-		case 5: return { type: "progress_changed", block, progress: { kind: "tracked", status: "done", report: filler(index, 120) } };
-		case 6: return { type: "post", kind: "failure", text: filler(index + 3, 150), block };
-		default: return { type: "agent_bound", launch: launches[index % launches.length]!, agent: "task" };
+		case 0:
+			return { type: "post", kind: "update", text: filler(index, 200) };
+		case 1:
+			return { type: "post", kind: "result", text: filler(index + 1, 400), block };
+		case 2:
+			return { type: "block_edited", block, field: "body", text: filler(index + 2, 600), edit: index + 1 };
+		case 3:
+			return { type: "event_sent", event: "launch_requested", data: { ...(run === null ? {} : { run }), blocks: [block] } };
+		case 4:
+			return { type: "launch_created", launch: launches[index % launches.length]!, kind: "prompt", blocks: [block] };
+		case 5:
+			return { type: "progress_changed", block, progress: { kind: "tracked", status: "done", report: filler(index, 120) } };
+		case 6:
+			return { type: "post", kind: "failure", text: filler(index + 3, 150), block };
+		default:
+			return { type: "agent_bound", launch: launches[index % launches.length]!, agent: "task" };
 	}
 }
 
 function launchRecord(id: LaunchId, run: RunId | null, start: number, closed: boolean): Launch {
 	const text = filler(start, 20_000);
 	return {
-		id, run, session: "bench-session", blocks: ["b1" as BlockId], kind: "prompt",
+		id,
+		run,
+		session: "bench-session",
+		blocks: ["b1" as BlockId],
+		kind: "prompt",
 		snapshot: { result: { kind: "Ok", text, sources: [] }, fetches: [], results: [] },
-		agents: [], baselines: [text], notified: null, dirty: [], fetches: [],
+		agents: [],
+		baselines: [text],
+		notified: null,
+		dirty: [],
+		fetches: [],
 		closed: closed ? { at: start + 1, by: "run_finished" } : null,
 	};
 }
@@ -136,7 +166,15 @@ async function writeFixture(directory: string, args: readonly string[]): Promise
 		const id = `r${r}` as RunId;
 		const finished = r <= runs;
 		const startedAt = 1_700_000_000_000 + r * 3_600_000;
-		const meta: RunMeta = { id, name: `Run ${r}`, status: finished ? "finished" : "running", startedAt, finishedAt: finished ? startedAt + 60_000 : null, updateEvery: null, updateDue: null };
+		const meta: RunMeta = {
+			id,
+			name: `Run ${r}`,
+			status: finished ? "finished" : "running",
+			startedAt,
+			finishedAt: finished ? startedAt + 60_000 : null,
+			updateEvery: null,
+			updateDue: null,
+		};
 		const doc: PlaybookDoc = { title: "Bench Playbook", blocks: blocks(100, 1000, finished) };
 		store.appendServiceRecord({ kind: "run", id });
 		store.write({ kind: "run", run: id }, store.serialize(doc, meta));
@@ -155,12 +193,15 @@ class LineClient {
 	#next = 0;
 	private constructor(connection: IpcConnection) {
 		this.#connection = connection;
-		connection.start(line => {
-			const frame: Record<string, unknown> = JSON.parse(line);
-			const id = frame.id;
-			if (typeof id === "string") this.#pending.get(id)?.(frame);
-			else this.events.push(frame);
-		}, () => {});
+		connection.start(
+			(line) => {
+				const frame: Record<string, unknown> = JSON.parse(line);
+				const id = frame.id;
+				if (typeof id === "string") this.#pending.get(id)?.(frame);
+				else this.events.push(frame);
+			},
+			() => {},
+		);
 	}
 	static async connect(endpoint: string): Promise<LineClient> {
 		return new LineClient(await IpcConnection.connect(endpoint, { framing: "lines" }));
@@ -168,18 +209,25 @@ class LineClient {
 	request(op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
 		const id = `q${++this.#next}`;
 		const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
-		this.#pending.set(id, frame => { this.#pending.delete(id); resolve(frame); });
+		this.#pending.set(id, (frame) => {
+			this.#pending.delete(id);
+			resolve(frame);
+		});
 		this.#connection.send(JSON.stringify({ id, op, args }));
 		return promise;
 	}
-	close(): void { this.#connection.end(); }
+	close(): void {
+		this.#connection.end();
+	}
 }
 
 // ---------------------------------------------------------------- measure
 
 /** Counts every Store call by method name and the characters of whole-file text reads. */
 function countingStore(store: Store, counts: Map<string, number>, bytes: { yaml: number }): Store {
-	const record = (name: string): void => { counts.set(name, (counts.get(name) ?? 0) + 1); };
+	const record = (name: string): void => {
+		counts.set(name, (counts.get(name) ?? 0) + 1);
+	};
 	return new Proxy(store, {
 		get(target, key, receiver) {
 			const value: unknown = Reflect.get(target, key, receiver);
@@ -188,7 +236,8 @@ function countingStore(store: Store, counts: Map<string, number>, bytes: { yaml:
 				record(key);
 				const result: unknown = value.apply(target, args);
 				// Base: stat() returns the whole text; HEAD: readText() does.
-				if (key === "stat" && typeof result === "object" && result !== null && "text" in result && typeof result.text === "string") bytes.yaml += result.text.length;
+				if (key === "stat" && typeof result === "object" && result !== null && "text" in result && typeof result.text === "string")
+					bytes.yaml += result.text.length;
 				if (key === "readText" && typeof result === "string") bytes.yaml += result.length;
 				return result;
 			};
@@ -197,7 +246,7 @@ function countingStore(store: Store, counts: Map<string, number>, bytes: { yaml:
 }
 
 function mb(value: number): number {
-	return Math.round(value / 1024 / 1024 * 10) / 10;
+	return Math.round((value / 1024 / 1024) * 10) / 10;
 }
 function rss(): number {
 	Bun.gc(true);
@@ -221,7 +270,10 @@ async function startService(src: string, fixture: string, counts: Map<string, nu
 	cpSync(fixture, directory, { recursive: true });
 	const store = countingStore(createStore(join(directory, "book.yaml")), counts, bytes);
 	const core = new Core({
-		store, references, checks, ...(now ? { now } : {}),
+		store,
+		references,
+		checks,
+		...(now ? { now } : {}),
 		fetcher: { fetch: async () => ({ ok: true, at: 1, value: { kind: "file", text: "bench" } }) },
 		panes: { ownPane: () => null, focusPane: async () => ({ ok: true }) },
 	});
@@ -265,44 +317,72 @@ async function measure(args: readonly string[]): Promise<void> {
 	const templateFile = join(directory, "book.yaml");
 	const parsed = store.parse(readFileSync(templateFile, "utf8"), false);
 	if (!parsed.ok) throw new Error(parsed.error);
-	const added: Block = { id: "b500" as BlockId, title: "Added on disk", content: { kind: "task", body: "Appended outside the service" }, progress: { kind: "tracked", status: "todo", report: null } };
+	const added: Block = {
+		id: "b500" as BlockId,
+		title: "Added on disk",
+		content: { kind: "task", body: "Appended outside the service" },
+		progress: { kind: "tracked", status: "todo", report: null },
+	};
 	writeFileSync(templateFile, store.serialize({ title: parsed.doc.title, blocks: [...parsed.doc.blocks, added] }, null));
 	const editStarted = performance.now();
 	let editSeenMs: number | null = null;
 	while (performance.now() - editStarted < 2000) {
 		const reply = await client.request("read", { block: "b500" });
-		if (reply.ok === true) { editSeenMs = Math.round(performance.now() - editStarted); break; }
+		if (reply.ok === true) {
+			editSeenMs = Math.round(performance.now() - editStarted);
+			break;
+		}
 		await sleep(50);
 	}
 
 	// Finishing every running Run: its state should leave memory (§2).
 	const summaries = await client.request("runs", {});
-	const runList = summaries.ok === true && typeof summaries.result === "object" && summaries.result !== null && "runs" in summaries.result && Array.isArray(summaries.result.runs) ? summaries.result.runs : [];
-	const runningIds = runList.flatMap((run: unknown) => typeof run === "object" && run !== null && "status" in run && run.status === "running" && "id" in run && typeof run.id === "string" ? [run.id] : []);
+	const runList =
+		summaries.ok === true &&
+		typeof summaries.result === "object" &&
+		summaries.result !== null &&
+		"runs" in summaries.result &&
+		Array.isArray(summaries.result.runs)
+			? summaries.result.runs
+			: [];
+	const runningIds = runList.flatMap((run: unknown) =>
+		typeof run === "object" && run !== null && "status" in run && run.status === "running" && "id" in run && typeof run.id === "string"
+			? [run.id]
+			: [],
+	);
 	const rssBeforeFinish = rss();
 	for (const run of runningIds) await client.request("finish_run", { run });
 	await sleep(50);
 	const rssAfterFinish = rss();
 	const after = await client.request("runs", {});
-	const afterRuns = after.ok === true && typeof after.result === "object" && after.result !== null && "runs" in after.result && Array.isArray(after.result.runs) ? after.result.runs.length : -1;
+	const afterRuns =
+		after.ok === true &&
+		typeof after.result === "object" &&
+		after.result !== null &&
+		"runs" in after.result &&
+		Array.isArray(after.result.runs)
+			? after.result.runs.length
+			: -1;
 
 	stop();
-	console.log(JSON.stringify({
-		src,
-		loadMs: Math.round(loadMs),
-		rssStartMB: mb(rssStart),
-		rssAfterLoadMB: mb(rssAfterLoad),
-		pollSeconds: poll,
-		rssSteadyMB: mb(rssSteady),
-		pollStoreCalls: pollCounts,
-		pollYamlFullReads: (pollCounts.stat ?? 0) + (pollCounts.readText ?? 0),
-		pollYamlMB: mb(pollYamlChars),
-		diskEditSeenMs: editSeenMs,
-		finished: runningIds.length,
-		rssBeforeFinishMB: mb(rssBeforeFinish),
-		rssAfterFinishMB: mb(rssAfterFinish),
-		runsAfterFinish: afterRuns,
-	}));
+	console.log(
+		JSON.stringify({
+			src,
+			loadMs: Math.round(loadMs),
+			rssStartMB: mb(rssStart),
+			rssAfterLoadMB: mb(rssAfterLoad),
+			pollSeconds: poll,
+			rssSteadyMB: mb(rssSteady),
+			pollStoreCalls: pollCounts,
+			pollYamlFullReads: (pollCounts.stat ?? 0) + (pollCounts.readText ?? 0),
+			pollYamlMB: mb(pollYamlChars),
+			diskEditSeenMs: editSeenMs,
+			finished: runningIds.length,
+			rssBeforeFinishMB: mb(rssBeforeFinish),
+			rssAfterFinishMB: mb(rssAfterFinish),
+			runsAfterFinish: afterRuns,
+		}),
+	);
 	process.exit(0);
 }
 
@@ -311,14 +391,30 @@ async function compare(args: readonly string[]): Promise<void> {
 	const fixture = resolve(required(args, "fixture"));
 	const poll = String(numberOption(args, "poll", 60));
 	const results: Record<string, Record<string, unknown>> = {};
-	for (const [label, src] of [["base", base], ["head", HERE]] as const) {
-		const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "measure", "--src", src, "--fixture", fixture, "--poll", poll], { stdout: "pipe", stderr: "inherit" });
+	for (const [label, src] of [
+		["base", base],
+		["head", HERE],
+	] as const) {
+		const child = Bun.spawnSync(
+			["bun", join(HERE, "test/bench/memory.ts"), "measure", "--src", src, "--fixture", fixture, "--poll", poll],
+			{ stdout: "pipe", stderr: "inherit" },
+		);
 		if (child.exitCode !== 0) throw new Error(`${label} measure failed with ${child.exitCode}`);
 		const line = child.stdout.toString().trim().split("\n").at(-1)!;
 		results[label] = JSON.parse(line);
 		console.log(`${label}: ${line}`);
 	}
-	const keys = ["loadMs", "rssAfterLoadMB", "rssSteadyMB", "pollYamlFullReads", "pollYamlMB", "diskEditSeenMs", "rssBeforeFinishMB", "rssAfterFinishMB", "runsAfterFinish"];
+	const keys = [
+		"loadMs",
+		"rssAfterLoadMB",
+		"rssSteadyMB",
+		"pollYamlFullReads",
+		"pollYamlMB",
+		"diskEditSeenMs",
+		"rssBeforeFinishMB",
+		"rssAfterFinishMB",
+		"runsAfterFinish",
+	];
 	console.log(`\n| metric | base | head |\n|---|---|---|`);
 	for (const key of keys) console.log(`| ${key} | ${JSON.stringify(results.base?.[key])} | ${JSON.stringify(results.head?.[key])} |`);
 }
@@ -356,22 +452,38 @@ async function transport(args: readonly string[]): Promise<void> {
 	const { K1Client }: typeof ClientModule = await import(join(src, "src/extension/client.ts"));
 	const directory = mkdtempSync("/tmp/opb-bench-");
 	const path = ipcEndpoint(directory, "frame");
-	const big = JSON.stringify({ entries: Array.from({ length: Math.ceil(frameMB * 1024 * 1024 / 1000) }, (_, index) => ({ seq: index + 1, text: filler(index, 970) })) });
+	const big = JSON.stringify({
+		entries: Array.from({ length: Math.ceil((frameMB * 1024 * 1024) / 1000) }, (_, index) => ({
+			seq: index + 1,
+			text: filler(index, 970),
+		})),
+	});
 	let sentAt = 0;
 	// One reply frame of the host's `lines` framing: a frame is one line, so it leaves in one `send`.
-	const server = await IpcServer.listen(path, { framing: "lines" }, connection => {
-		connection.start(line => {
-			const frame: Record<string, unknown> = JSON.parse(line);
-			const id = String(frame.id);
-			if (frame.op === "hello") { connection.send(JSON.stringify({ id, ok: true, result: { blocks: [], runs: [] } })); return; }
-			sentAt = performance.now();
-			connection.send(`{"id":${JSON.stringify(id)},"ok":true,"result":${big}}`);
-		}, () => {});
+	const server = await IpcServer.listen(path, { framing: "lines" }, (connection) => {
+		connection.start(
+			(line) => {
+				const frame: Record<string, unknown> = JSON.parse(line);
+				const id = String(frame.id);
+				if (frame.op === "hello") {
+					connection.send(JSON.stringify({ id, ok: true, result: { blocks: [], runs: [] } }));
+					return;
+				}
+				sentAt = performance.now();
+				connection.send(`{"id":${JSON.stringify(id)},"ok":true,"result":${big}}`);
+			},
+			() => {},
+		);
 	});
-	const k1 = new K1Client(path, { session: "bench" }, input => {
-		if (typeof input !== "object" || input === null || !("id" in input) || typeof input.id !== "string") throw new Error("bad frame");
-		return { id: input.id, ok: true, result: "result" in input ? input.result : null };
-	}, () => {});
+	const k1 = new K1Client(
+		path,
+		{ session: "bench" },
+		(input) => {
+			if (typeof input !== "object" || input === null || !("id" in input) || typeof input.id !== "string") throw new Error("bad frame");
+			return { id: input.id, ok: true, result: "result" in input ? input.result : null };
+		},
+		() => {},
+	);
 	await k1.connect();
 	const reply = await k1.request({ op: "runs", args: {} });
 	const frameMs = performance.now() - sentAt;
@@ -379,15 +491,27 @@ async function transport(args: readonly string[]): Promise<void> {
 	k1.close();
 	void server.close();
 	rmSync(directory, { recursive: true, force: true });
-	console.log(JSON.stringify({ src, timeline: { whole, page, tail }, frame: { mb: Math.round(big.length / 1024 / 1024 * 10) / 10, bytes: big.length, ok: reply.ok, ms: Math.round(frameMs) } }));
+	console.log(
+		JSON.stringify({
+			src,
+			timeline: { whole, page, tail },
+			frame: { mb: Math.round((big.length / 1024 / 1024) * 10) / 10, bytes: big.length, ok: reply.ok, ms: Math.round(frameMs) },
+		}),
+	);
 	process.exit(0);
 }
 
 async function compareTransport(args: readonly string[]): Promise<void> {
 	const base = resolve(required(args, "base"));
 	const fixture = resolve(required(args, "fixture"));
-	for (const [label, src] of [["base", base], ["head", HERE]] as const) {
-		const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "transport", "--src", src, "--fixture", fixture], { stdout: "pipe", stderr: "inherit" });
+	for (const [label, src] of [
+		["base", base],
+		["head", HERE],
+	] as const) {
+		const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "transport", "--src", src, "--fixture", fixture], {
+			stdout: "pipe",
+			stderr: "inherit",
+		});
 		if (child.exitCode !== 0) throw new Error(`${label} transport failed with ${child.exitCode}`);
 		console.log(`${label}: ${child.stdout.toString().trim().split("\n").at(-1)}`);
 	}
@@ -406,7 +530,9 @@ async function pages(args: readonly string[]): Promise<void> {
 	const entriesOf = (reply: Record<string, unknown>): { seqs: number[]; text: string; next: unknown } => {
 		const result = reply.ok === true && typeof reply.result === "object" && reply.result !== null ? reply.result : null;
 		const entries = result !== null && "entries" in result && Array.isArray(result.entries) ? result.entries : [];
-		const seqs = entries.flatMap((entry: unknown) => typeof entry === "object" && entry !== null && "seq" in entry && typeof entry.seq === "number" ? [entry.seq] : []);
+		const seqs = entries.flatMap((entry: unknown) =>
+			typeof entry === "object" && entry !== null && "seq" in entry && typeof entry.seq === "number" ? [entry.seq] : [],
+		);
 		return { seqs, text: JSON.stringify(entries), next: result !== null && "next_after" in result ? result.next_after : undefined };
 	};
 	const report: Record<string, unknown>[] = [];
@@ -423,13 +549,23 @@ async function pages(args: readonly string[]): Promise<void> {
 			seen.push(...page.seqs);
 			if (page.seqs.length > 0) joined.push(page.text.slice(1, -1));
 			if (page.next === undefined) break;
-			if (page.next !== page.seqs.at(-1)) { failed = true; break; }
+			if (page.next !== page.seqs.at(-1)) {
+				failed = true;
+				break;
+			}
 			after = Number(page.next);
 		}
 		const same = `[${joined.join(",")}]` === whole.text;
 		const increasing = seen.every((seq, index) => index === 0 || seq > seen[index - 1]!);
 		if (!same || !increasing) failed = true;
-		report.push({ document: label, whole: whole.seqs.length, pages: count, paged: seen.length, joinedEqualsWhole: same, noOverlap: increasing });
+		report.push({
+			document: label,
+			whole: whole.seqs.length,
+			pages: count,
+			paged: seen.length,
+			joinedEqualsWhole: same,
+			noOverlap: increasing,
+		});
 	};
 	await check("template", {});
 	await check("r1 (finished, read back from disk)", { run: "r1" });
@@ -461,7 +597,9 @@ async function derived(args: readonly string[]): Promise<void> {
 	cpSync(fixture, directory, { recursive: true });
 	const store = createStore(join(directory, "book.yaml"));
 	const core = new Core({
-		store, references, checks,
+		store,
+		references,
+		checks,
 		fetcher: { fetch: async () => ({ ok: true, at: 1, value: { kind: "file", text: "bench" } }) },
 		panes: { ownPane: () => null, focusPane: async () => ({ ok: true }) },
 	});
@@ -477,10 +615,17 @@ async function derived(args: readonly string[]): Promise<void> {
 		const started = performance.now();
 		for (let i = 0; i < rounds; i++) call();
 		const ms = performance.now() - started;
-		return { msPerCall: Math.round(ms / rounds * 1000) / 1000, heapKBPerCall: Math.round((process.memoryUsage().heapUsed - heap) / rounds / 1024 * 10) / 10 };
+		return {
+			msPerCall: Math.round((ms / rounds) * 1000) / 1000,
+			heapKBPerCall: Math.round(((process.memoryUsage().heapUsed - heap) / rounds / 1024) * 10) / 10,
+		};
 	};
-	const view = measureCalls(() => { core.view(template); });
-	const runs = measureCalls(() => { core.runs(); });
+	const view = measureCalls(() => {
+		core.view(template);
+	});
+	const runs = measureCalls(() => {
+		core.runs();
+	});
 	// One human edit per round; its check recompute runs after the fetch wait, so each round awaits it.
 	let text = core.view(template).blocks[0]!.block;
 	const editRounds = Math.max(1, Math.floor(rounds / 10));
@@ -498,7 +643,10 @@ async function derived(args: readonly string[]): Promise<void> {
 	}
 	// The median: an edit round now and then also pays for a timer (write-back, judgment) firing inside it.
 	times.sort((a, b) => a - b);
-	const edit = { msPerCall: Math.round(times[Math.floor(times.length / 2)]! * 1000) / 1000, heapKBPerCall: Math.round((process.memoryUsage().heapUsed - heap) / editRounds / 1024 * 10) / 10 };
+	const edit = {
+		msPerCall: Math.round(times[Math.floor(times.length / 2)]! * 1000) / 1000,
+		heapKBPerCall: Math.round(((process.memoryUsage().heapUsed - heap) / editRounds / 1024) * 10) / 10,
+	};
 	core.stop();
 	rmSync(directory, { recursive: true, force: true });
 	console.log(JSON.stringify({ src, templateEntries: entries, view, runs, edit }));
@@ -507,14 +655,26 @@ async function derived(args: readonly string[]): Promise<void> {
 
 async function compareDerived(args: readonly string[]): Promise<void> {
 	const base = resolve(required(args, "base"));
-	const fixtures = required(args, "fixtures").split(",").map(path => resolve(path));
-	console.log("| checkout | template entries | view ms/call | view heap KB/call | runs ms/call | runs heap KB/call | edit ms (median) | edit heap KB/call |\n|---|---|---|---|---|---|---|---|");
+	const fixtures = required(args, "fixtures")
+		.split(",")
+		.map((path) => resolve(path));
+	console.log(
+		"| checkout | template entries | view ms/call | view heap KB/call | runs ms/call | runs heap KB/call | edit ms (median) | edit heap KB/call |\n|---|---|---|---|---|---|---|---|",
+	);
 	for (const fixture of fixtures) {
-		for (const [label, src] of [["base", base], ["head", HERE]] as const) {
-			const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "derived", "--src", src, "--fixture", fixture], { stdout: "pipe", stderr: "inherit" });
+		for (const [label, src] of [
+			["base", base],
+			["head", HERE],
+		] as const) {
+			const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "derived", "--src", src, "--fixture", fixture], {
+				stdout: "pipe",
+				stderr: "inherit",
+			});
 			if (child.exitCode !== 0) throw new Error(`${label} derived failed with ${child.exitCode}`);
 			const r = JSON.parse(child.stdout.toString().trim().split("\n").at(-1)!);
-			console.log(`| ${label} | ${r.templateEntries} | ${r.view.msPerCall} | ${r.view.heapKBPerCall} | ${r.runs.msPerCall} | ${r.runs.heapKBPerCall} | ${r.edit.msPerCall} | ${r.edit.heapKBPerCall} |`);
+			console.log(
+				`| ${label} | ${r.templateEntries} | ${r.view.msPerCall} | ${r.view.heapKBPerCall} | ${r.runs.msPerCall} | ${r.runs.heapKBPerCall} | ${r.edit.msPerCall} | ${r.edit.heapKBPerCall} |`,
+			);
 		}
 	}
 }
@@ -532,16 +692,33 @@ async function replay(args: readonly string[]): Promise<void> {
 	const { directory, core, client, stop } = await startService(src, fixture, new Map(), { yaml: 0 }, () => 1_800_000_000_000);
 	const script: [string, Record<string, unknown>][] = [
 		["runs", {}],
-		["timeline", { run: "r1" }], ["timeline", { run: "r1", after: 300 }], ["read", { run: "r1" }], ["read", { run: "r1", block: "b7" }], ["revisions", { run: "r1" }],
-		["launch_info", { launch: "l4" }], ["launch_info", { launch: "l2" }],
-		["lock", { run: "r1", block: "b1" }], ["insert", { run: "r1", title: "x", content: { kind: "task", body: "x" } }], ["launch", { run: "r1", blocks: ["b1"] }],
-		["snooze", { run: "r1", after: 5 }], ["finish_run", { run: "r1" }], ["unlock", { run: "r1", block: "b1", request: "q0" }],
-		["bind", { launch: "l4", agent: "late" }], ["rebase", { launch: "l4" }], ["close", { launch: "l4" }],
-		["post", { run: "r3", kind: "retrospective", text: "Late review", launch: "l10" }], ["post", { run: "r3", kind: "retrospective", text: "Wrong", launch: "l4" }],
+		["timeline", { run: "r1" }],
+		["timeline", { run: "r1", after: 300 }],
+		["read", { run: "r1" }],
+		["read", { run: "r1", block: "b7" }],
+		["revisions", { run: "r1" }],
+		["launch_info", { launch: "l4" }],
+		["launch_info", { launch: "l2" }],
+		["lock", { run: "r1", block: "b1" }],
+		["insert", { run: "r1", title: "x", content: { kind: "task", body: "x" } }],
+		["launch", { run: "r1", blocks: ["b1"] }],
+		["snooze", { run: "r1", after: 5 }],
+		["finish_run", { run: "r1" }],
+		["unlock", { run: "r1", block: "b1", request: "q0" }],
+		["bind", { launch: "l4", agent: "late" }],
+		["rebase", { launch: "l4" }],
+		["close", { launch: "l4" }],
+		["post", { run: "r3", kind: "retrospective", text: "Late review", launch: "l10" }],
+		["post", { run: "r3", kind: "retrospective", text: "Wrong", launch: "l4" }],
 		["inspect", { run: "r5", blocks: ["b2"] }],
 		["compile", { run: "r5", blocks: ["b4"] }],
-		["finish_run", { run: "r201" }], ["timeline", { run: "r201", after: 500 }], ["read", { run: "r201", block: "b3" }], ["launch_info", { launch: "l604" }],
-		["timeline", { after: 4990 }], ["read", { block: "b1" }], ["launch_info", { launch: "l1" }],
+		["finish_run", { run: "r201" }],
+		["timeline", { run: "r201", after: 500 }],
+		["read", { run: "r201", block: "b3" }],
+		["launch_info", { launch: "l604" }],
+		["timeline", { after: 4990 }],
+		["read", { block: "b1" }],
+		["launch_info", { launch: "l1" }],
 		["runs", {}],
 	];
 	const answers: unknown[] = [];
@@ -551,7 +728,15 @@ async function replay(args: readonly string[]): Promise<void> {
 	}
 	// The inspect version, reported back: the report must land in the finished Run's log.
 	const inspected = answers[19];
-	const version = typeof inspected === "object" && inspected !== null && "result" in inspected && typeof inspected.result === "object" && inspected.result !== null && "version" in inspected.result ? inspected.result.version : null;
+	const version =
+		typeof inspected === "object" &&
+		inspected !== null &&
+		"result" in inspected &&
+		typeof inspected.result === "object" &&
+		inspected.result !== null &&
+		"version" in inspected.result
+			? inspected.result.version
+			: null;
 	const reported = await client.request("report", { run: "r5", blocks: ["b2"], version, result: { kind: "judge_unavailable" } });
 	answers.push({ op: "report", ok: reported.ok, ...(reported.ok === true ? { result: reported.result } : { error: reported.error }) });
 	// What the pane draws, and a Run's update reminder firing with its last update.
@@ -566,9 +751,15 @@ async function replay(args: readonly string[]): Promise<void> {
 	answers.push({ op: "runs()", result: core.runs() });
 	const digest = (text: string): string => new Bun.CryptoHasher("sha256").update(text).digest("hex").slice(0, 16);
 	const files: Record<string, string> = {};
-	for (const name of ["book.yaml", "book.runs/r1.yaml", "book.runs/r3.yaml", "book.runs/r5.yaml", "book.runs/r201.yaml"]) files[name] = digest(readFileSync(join(directory, name), "utf8"));
+	for (const name of ["book.yaml", "book.runs/r1.yaml", "book.runs/r3.yaml", "book.runs/r5.yaml", "book.runs/r201.yaml"])
+		files[name] = digest(readFileSync(join(directory, name), "utf8"));
 	for (const name of ["book.yaml.log.jsonl", "book.runs/r1.jsonl", "book.runs/r3.jsonl", "book.runs/r5.jsonl", "book.runs/r201.jsonl"]) {
-		files[`${name} (entry lines)`] = digest(readFileSync(join(directory, name), "utf8").split("\n").filter(line => line.startsWith('{"entry"')).join("\n"));
+		files[`${name} (entry lines)`] = digest(
+			readFileSync(join(directory, name), "utf8")
+				.split("\n")
+				.filter((line) => line.startsWith('{"entry"'))
+				.join("\n"),
+		);
 	}
 	stop();
 	console.log(JSON.stringify({ answers, files }));
@@ -579,8 +770,14 @@ async function diffReplay(args: readonly string[]): Promise<void> {
 	const base = resolve(required(args, "base"));
 	const fixture = resolve(required(args, "fixture"));
 	const outputs: Record<string, { answers: unknown[]; files: Record<string, string> }> = {};
-	for (const [label, src] of [["base", base], ["head", HERE]] as const) {
-		const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "replay", "--src", src, "--fixture", fixture], { stdout: "pipe", stderr: "inherit" });
+	for (const [label, src] of [
+		["base", base],
+		["head", HERE],
+	] as const) {
+		const child = Bun.spawnSync(["bun", join(HERE, "test/bench/memory.ts"), "replay", "--src", src, "--fixture", fixture], {
+			stdout: "pipe",
+			stderr: "inherit",
+		});
 		if (child.exitCode !== 0) throw new Error(`${label} replay failed with ${child.exitCode}`);
 		outputs[label] = JSON.parse(child.stdout.toString().trim().split("\n").at(-1)!);
 	}
@@ -592,28 +789,58 @@ async function diffReplay(args: readonly string[]): Promise<void> {
 		const b = JSON.stringify(headOut.answers[index]);
 		const op = typeof answer === "object" && answer !== null && "op" in answer ? answer.op : "?";
 		console.log(`${a === b ? "same" : "DIFF"} answer ${index + 1} ${String(op)} (${a.length} bytes)`);
-		if (a !== b) { differences++; console.log(`  base: ${a.slice(0, 400)}\n  head: ${b.slice(0, 400)}`); }
+		if (a !== b) {
+			differences++;
+			console.log(`  base: ${a.slice(0, 400)}\n  head: ${b.slice(0, 400)}`);
+		}
 	});
 	for (const [name, hash] of Object.entries(baseOut.files)) {
 		const same = headOut.files[name] === hash;
 		if (!same) differences++;
 		console.log(`${same ? "same" : "DIFF"} file ${name} ${hash} ${headOut.files[name]}`);
 	}
-	console.log(differences === 0 ? `identical: ${baseOut.answers.length} answers, ${Object.keys(baseOut.files).length} files` : `${differences} differences`);
+	console.log(
+		differences === 0
+			? `identical: ${baseOut.answers.length} answers, ${Object.keys(baseOut.files).length} files`
+			: `${differences} differences`,
+	);
 	process.exit(differences === 0 ? 0 : 1);
 }
 
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
-	case "fixture": await writeFixture(resolve(rest[0] ?? "/tmp/opb-fixture"), rest.slice(1)); break;
-	case "measure": await measure(rest); break;
-	case "compare": await compare(rest); break;
-	case "replay": await replay(rest); break;
-	case "diff": await diffReplay(rest); break;
-	case "transport": await transport(rest); break;
-	case "compare-transport": await compareTransport(rest); break;
-	case "derived": await derived(rest); break;
-	case "pages": await pages(rest); break;
-	case "compare-derived": await compareDerived(rest); break;
-	default: throw new Error("usage: memory.ts fixture <dir> | measure --src <root> --fixture <dir> | compare --base <root> --fixture <dir> | replay --src <root> --fixture <dir> | diff --base <root> --fixture <dir> | compare-transport --base <root> --fixture <dir> | compare-derived --base <root> --fixtures <dir>,<dir> | pages --src <root> --fixture <dir>");
+	case "fixture":
+		await writeFixture(resolve(rest[0] ?? "/tmp/opb-fixture"), rest.slice(1));
+		break;
+	case "measure":
+		await measure(rest);
+		break;
+	case "compare":
+		await compare(rest);
+		break;
+	case "replay":
+		await replay(rest);
+		break;
+	case "diff":
+		await diffReplay(rest);
+		break;
+	case "transport":
+		await transport(rest);
+		break;
+	case "compare-transport":
+		await compareTransport(rest);
+		break;
+	case "derived":
+		await derived(rest);
+		break;
+	case "pages":
+		await pages(rest);
+		break;
+	case "compare-derived":
+		await compareDerived(rest);
+		break;
+	default:
+		throw new Error(
+			"usage: memory.ts fixture <dir> | measure --src <root> --fixture <dir> | compare --base <root> --fixture <dir> | replay --src <root> --fixture <dir> | diff --base <root> --fixture <dir> | compare-transport --base <root> --fixture <dir> | compare-derived --base <root> --fixtures <dir>,<dir> | pages --src <root> --fixture <dir>",
+		);
 }

@@ -3,11 +3,10 @@
 // front end (TSP UI, K1 socket) that calls the core.
 import type {
 	AgentList,
+	Block,
 	BlockContent,
 	BlockId,
 	BlockResult,
-	HumanField,
-	Revision,
 	CompileInput,
 	CompileResult,
 	DocRef,
@@ -16,19 +15,20 @@ import type {
 	FetchTable,
 	FindingName,
 	Findings,
+	HumanField,
 	JudgeReport,
 	Launch,
 	LaunchId,
 	PlaybookDoc,
 	Reference,
+	ReferenceExpression,
+	Revision,
 	RunId,
 	RunMeta,
 	Status,
 	Target,
 	TargetKey,
 	TimelineEntry,
-	Block,
-	ReferenceExpression,
 } from "./model";
 import type { EventPayload, Outcome, Request } from "./protocol";
 
@@ -40,7 +40,9 @@ export interface ReferencesModule {
 	/** Classify a target text (references.md §2); null = UnknownTarget. */
 	parseTarget(text: string): Target | null;
 	/** Parse a reference's expression (references.md §3): its `as("…")` alias, selectors and selection text, or why it is invalid. */
-	parseExpression(expression: string | null): { readonly ok: true; readonly value: ReferenceExpression } | { readonly ok: false; readonly reason: string };
+	parseExpression(
+		expression: string | null,
+	): { readonly ok: true; readonly value: ReferenceExpression } | { readonly ok: false; readonly reason: string };
 	/** Canonical key of a target; used for fetch tables. */
 	targetKey(target: Target): TargetKey;
 	/** Dependency closure (launch-events.md §3): the roots, the ids reachable through block references of task bodies (design blocks are leaves), and the blocks whose slots their `{{bN.name}}` uses read (leaves too), including missing ids. */
@@ -56,7 +58,11 @@ export interface ReferencesModule {
 	/** Unified diff from `before` to `after` (launch-events.md §4). */
 	unifiedDiff(before: string, after: string): string;
 	/** A design draft with the panel whose heading writes `id` replaced by `replacement` (itself one panel with that ID). */
-	replacePanel(design: string, id: string, replacement: string): { readonly ok: true; readonly text: string } | { readonly ok: false; readonly code: "NotFound" | "BadValue"; readonly reason: string };
+	replacePanel(
+		design: string,
+		id: string,
+		replacement: string,
+	): { readonly ok: true; readonly text: string } | { readonly ok: false; readonly code: "NotFound" | "BadValue"; readonly reason: string };
 }
 
 // ---------------------------------------------------------------- fetching (IO) — src/service/fetch.ts
@@ -69,9 +75,14 @@ export interface Fetcher {
 // ---------------------------------------------------------------- persistence (IO) — src/service/store.ts
 
 /** Service record line (README §定义 服务记录文件). */
-export type ServiceRecord = { readonly kind: "block"; readonly id: BlockId } | { readonly kind: "run"; readonly id: RunId } | { readonly kind: "launch"; readonly id: LaunchId };
+export type ServiceRecord =
+	| { readonly kind: "block"; readonly id: BlockId }
+	| { readonly kind: "run"; readonly id: RunId }
+	| { readonly kind: "launch"; readonly id: LaunchId };
 
-export type ParsedFile = { readonly ok: true; readonly doc: PlaybookDoc; readonly run: RunMeta | null } | { readonly ok: false; readonly error: string };
+export type ParsedFile =
+	| { readonly ok: true; readonly doc: PlaybookDoc; readonly run: RunMeta | null }
+	| { readonly ok: false; readonly error: string };
 
 /** The fields of a Launch that change after it is created; a `launch_update` log line carries the changed ones, each whole. */
 export type LaunchChanges = Partial<Pick<Launch, "agents" | "baselines" | "notified" | "dirty" | "fetches" | "closed">>;
@@ -143,7 +154,11 @@ export interface ChecksModule {
 		readonly render: RenderStatus;
 	}): Findings;
 	/** SHA-256 version (checks.md §1). */
-	version(input: { readonly closure: ReadonlyMap<BlockId, string | null>; readonly results: readonly BlockResult[]; readonly compiled: CompileResult }): string;
+	version(input: {
+		readonly closure: ReadonlyMap<BlockId, string | null>;
+		readonly results: readonly BlockResult[];
+		readonly compiled: CompileResult;
+	}): string;
 	/** Validate a report against the question table (checks.md §3, §5). */
 	validateReport(result: JudgeReport): boolean;
 	/** The closed question table (checks.md §3). */
@@ -195,7 +210,10 @@ export interface HumanCommands {
 	/** Ask the coordinator to stop the block's open Launches; with none open the block goes back to todo at once. */
 	requestStop(ref: DocRef, block: BlockId): string | null;
 	/** Keep a pasted image beside the Playbook; the path is relative to the Playbook's directory, for `![…](path)`. */
-	saveImage(bytes: Uint8Array, mimeType: string): { readonly ok: true; readonly path: string } | { readonly ok: false; readonly error: string };
+	saveImage(
+		bytes: Uint8Array,
+		mimeType: string,
+	): { readonly ok: true; readonly path: string } | { readonly ok: false; readonly error: string };
 }
 
 export interface CoreApi extends HumanCommands {

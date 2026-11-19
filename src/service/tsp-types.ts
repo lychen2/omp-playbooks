@@ -19,12 +19,23 @@ export type TspEvent =
 	| { readonly ev: "focus"; readonly id: string }
 	| { readonly ev: "action"; readonly id: string; readonly act: string; readonly mods: readonly string[] }
 	| { readonly ev: "change"; readonly id: string; readonly checked?: boolean; readonly value?: string; readonly text?: string }
-	| { readonly ev: "edit"; readonly id: string; readonly from: number; readonly to: number; readonly text: string; readonly cursor: number; readonly len: number }
+	| {
+			readonly ev: "edit";
+			readonly id: string;
+			readonly from: number;
+			readonly to: number;
+			readonly text: string;
+			readonly cursor: number;
+			readonly len: number;
+	  }
 	| { readonly ev: "undo"; readonly id: string }
 	| { readonly ev: "toggle"; readonly id: string; readonly collapsed: boolean; readonly key?: string }
 	| { readonly ev: "other"; readonly body: unknown };
 
-export type TspInput = { readonly kind: "hello"; readonly dark: boolean } | { readonly kind: "event"; readonly event: TspEvent } | { readonly kind: "keys"; readonly bytes: string };
+export type TspInput =
+	| { readonly kind: "hello"; readonly dark: boolean }
+	| { readonly kind: "event"; readonly event: TspEvent }
+	| { readonly kind: "keys"; readonly bytes: string };
 
 /** Per-block render facts the TSP layer derives from frames, acks and errors (contracts.md K4 块检查的输入). */
 export interface FrameStatus {

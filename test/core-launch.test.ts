@@ -1,14 +1,13 @@
-import { launchFooter } from "../src/service/footer";
-import type { Store } from "../src/domain/ports";
-import { fieldText } from "../src/domain/model";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { Block, BlockId, CompileResult, DocRef, FetchOutcome, LaunchId } from "../src/domain/model";
-import type { Connection, Fetcher } from "../src/domain/ports";
+import type { Block, BlockId, DocRef, FetchOutcome, LaunchId } from "../src/domain/model";
+import { fieldText } from "../src/domain/model";
+import type { Connection, Fetcher, Store } from "../src/domain/ports";
 import type { ErrorCode, EventPayload, Outcome, Request } from "../src/domain/protocol";
 import { checks } from "../src/service/checks";
 import { Core } from "../src/service/core";
+import { launchFooter } from "../src/service/footer";
 import { references } from "../src/service/references";
 import { createStore } from "../src/service/store";
 
@@ -34,15 +33,21 @@ async function fixture(blocks: readonly Block[] = [block("b1", "Task:\n((b2))"),
 	const fetchCalls: string[] = [];
 	let fetchOutcome: FetchOutcome = { ok: true, at: Date.parse("2026-01-01T00:00:00Z"), value: { kind: "file", text: "external before" } };
 	const core = new Core({
-		store, references, checks,
-		fetcher: { async fetch(target, baseDir) {
-			expect(baseDir).toBe(directory);
-			fetchCalls.push(references.targetKey(target));
-			return fetcher ? fetcher.fetch(target, baseDir) : fetchOutcome;
-		} },
+		store,
+		references,
+		checks,
+		fetcher: {
+			async fetch(target, baseDir) {
+				expect(baseDir).toBe(directory);
+				fetchCalls.push(references.targetKey(target));
+				return fetcher ? fetcher.fetch(target, baseDir) : fetchOutcome;
+			},
+		},
 		panes: {
 			ownPane: () => null,
-			async focusPane() { return { ok: false, error: "not used by launch tests" }; },
+			async focusPane() {
+				return { ok: false, error: "not used by launch tests" };
+			},
 		},
 	});
 	cleanups.push(() => core.stop());
@@ -52,7 +57,7 @@ async function fixture(blocks: readonly Block[] = [block("b1", "Task:\n((b2))"),
 	let requestId = 0;
 	let conn: Connection;
 	async function connect(session = "launch-owner") {
-		conn = { id: ++connectionId, send: event => events.push(event), close() {} };
+		conn = { id: ++connectionId, send: (event) => events.push(event), close() {} };
 		core.connected(conn);
 		expect((await core.handle(conn, `q${++requestId}`, { op: "hello", args: { session } })).ok).toBe(true);
 	}
@@ -69,7 +74,9 @@ async function fixture(blocks: readonly Block[] = [block("b1", "Task:\n((b2))"),
 	const ref: DocRef = { kind: "run", run };
 	const changed = () => events.filter((event): event is ChangedEvent => event.event === "block_changed");
 	function edit(id: BlockId, body: string, field: "body" | "title" = "body") {
-		expect(core.edit(ref, id, field, fieldText(core.view(ref).blocks.find(item => item.block.id === id)!.block, field)!, body)).toBeNull();
+		expect(
+			core.edit(ref, id, field, fieldText(core.view(ref).blocks.find((item) => item.block.id === id)!.block, field)!, body),
+		).toBeNull();
 	}
 	async function launch(ids: readonly BlockId[] = ["b1"]) {
 		const result = await success({ op: "launch", args: { run, blocks: ids } });
@@ -79,9 +86,22 @@ async function fixture(blocks: readonly Block[] = [block("b1", "Task:\n((b2))"),
 		return record.id;
 	}
 	return {
-		core, store, run, ref, send, success, changed, edit, launch, connect, events, fetchCalls,
+		core,
+		store,
+		run,
+		ref,
+		send,
+		success,
+		changed,
+		edit,
+		launch,
+		connect,
+		events,
+		fetchCalls,
 		disconnect: () => core.disconnected(conn),
-		setFetchOutcome: (outcome: FetchOutcome) => { fetchOutcome = outcome; },
+		setFetchOutcome: (outcome: FetchOutcome) => {
+			fetchOutcome = outcome;
+		},
 	};
 }
 
@@ -96,7 +116,14 @@ async function awaitChanges(changed: () => readonly ChangedEvent[], count: numbe
 	return changed()[count - 1]!;
 }
 function prompt(f: { store: Store; ref: DocRef }, text: string, blocks: readonly BlockId[] = ["b1"]): string {
- return text + "\n\n" + launchFooter(f.store.path(f.ref), blocks.map(id => ({ id, title: id })));
+	return (
+		text +
+		"\n\n" +
+		launchFooter(
+			f.store.path(f.ref),
+			blocks.map((id) => ({ id, title: id })),
+		)
+	);
 }
 function error(outcome: Outcome<unknown>, code: ErrorCode) {
 	expect(outcome.ok).toBe(false);
@@ -107,8 +134,6 @@ function error(outcome: Outcome<unknown>, code: ErrorCode) {
 
 // launch-events.md §1–§4; references.md §4–§5.
 describe("Core Launch integration", () => {
-	
-
 	test("invalid roots and compile errors never create a Launch", async () => {
 		const f = await fixture([block("b1", "plain"), block("b2", "```js\nconsole.log(1);\n```"), block("b3", "((b99))")]);
 		error(await f.send({ op: "launch", args: { run: f.run, blocks: [] } }), "BadLaunch");
@@ -129,11 +154,11 @@ describe("Core Launch integration", () => {
 		for (const blocks of selections) {
 			error(await f.send({ op: "launch", args: { run: f.run, blocks } }), "BadLaunch");
 			expect(f.core.requestLaunch(f.ref, blocks)).not.toBeNull();
-			expect(f.events.filter(event => event.event === "launch_requested")).toEqual([]);
+			expect(f.events.filter((event) => event.event === "launch_requested")).toEqual([]);
 			expect(f.store.readLog({ kind: "run", run: f.run }).launches.size).toBe(0);
 		}
 		expect(f.core.requestLaunch(f.ref, ["b1"])).toBeNull();
-		expect(f.events.filter(event => event.event === "launch_requested")).toEqual([
+		expect(f.events.filter((event) => event.event === "launch_requested")).toEqual([
 			{ event: "launch_requested", data: { run: f.run, blocks: ["b1"] } },
 		]);
 		expect(await f.launch(["b1"])).toBe("l1");
@@ -162,15 +187,26 @@ describe("Core Launch integration", () => {
 			expect(event.data.launch).toEqual({ id: launch, kind: "prompt", run: f.run });
 			expect(event.data.agents).toEqual(["design-worker"]);
 			expect(event.data.changed).toEqual(["b2"]);
-			expect(structuredClone(event.data.current)).toMatchObject({ kind: "Ok", text: expect.stringContaining("Task:\n## A Overview\nafter") });
-			expect(event.data.diff).toBe(references.unifiedDiff(prompt(f, "Task:\n## A Overview\nbefore"), prompt(f, "Task:\n## A Overview\nafter")));
+			expect(structuredClone(event.data.current)).toMatchObject({
+				kind: "Ok",
+				text: expect.stringContaining("Task:\n## A Overview\nafter"),
+			});
+			expect(event.data.diff).toBe(
+				references.unifiedDiff(prompt(f, "Task:\n## A Overview\nbefore"), prompt(f, "Task:\n## A Overview\nafter")),
+			);
 			const persisted = f.store.readRun(f.run);
 			if (!persisted?.ok) throw new Error("expected persisted Run");
-			expect(persisted.doc.blocks.find(block => block.id === "b2")!.content).toEqual({
-				kind: "design", requirement: "Human requirement", design: after,
+			expect(persisted.doc.blocks.find((block) => block.id === "b2")!.content).toEqual({
+				kind: "design",
+				requirement: "Human requirement",
+				design: after,
 			});
 			expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.snapshot).toEqual(snapshot);
-			expect(f.store.readLog({ kind: "run", run: f.run }).entries.some(entry => entry.data.type === "event_sent" && entry.data.event === "block_changed")).toBe(true);
+			expect(
+				f.store
+					.readLog({ kind: "run", run: f.run })
+					.entries.some((entry) => entry.data.type === "event_sent" && entry.data.event === "block_changed"),
+			).toBe(true);
 		}, 8_000);
 	}
 
@@ -180,7 +216,8 @@ describe("Core Launch integration", () => {
 		const compiled = await f.success({ op: "compile", args: { run: f.run, blocks: ids } });
 		const launch = await f.launch(ids);
 		const snapshot = (f.store.readLog(f.ref).launches.get(launch) ?? null)!.snapshot;
-		if (!compiled || typeof compiled !== "object" || !("text" in compiled) || typeof compiled.text !== "string") throw new Error("compile missing text");
+		if (!compiled || typeof compiled !== "object" || !("text" in compiled) || typeof compiled.text !== "string")
+			throw new Error("compile missing text");
 		expect(snapshot.result.text).toBe(prompt(f, compiled.text, ids));
 		expect(snapshot.result.text).toBe(prompt(f, "second\n\nfirst", ids));
 		f.edit("b1", "new first");
@@ -245,10 +282,13 @@ describe("Core Launch integration", () => {
 		const event = await awaitChanges(f.changed, 1);
 		expect(event.data.changed).toEqual(["b2"]);
 		expect(event.data.diff).toBe("");
-		expect(event.data.current).toMatchObject({ kind: "Err", error: { kind: "UnknownBlock", block: "b2", at: { block: "b1", reference: "((b2))" } } });
+		expect(event.data.current).toMatchObject({
+			kind: "Err",
+			error: { kind: "UnknownBlock", block: "b2", at: { block: "b1", reference: "((b2))" } },
+		});
 		const before = (f.store.readLog(f.ref).launches.get(launch) ?? null)!;
 		error(await f.send({ op: "rebase", args: { launch } }), "CompileError");
-		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)).toEqual(before);
+		expect(f.store.readLog(f.ref).launches.get(launch) ?? null).toEqual(before);
 		await f.success({ op: "ack", args: { event: event.data.id } });
 		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.notified).toEqual(event.data.current);
 	}, 8_000);
@@ -260,7 +300,10 @@ describe("Core Launch integration", () => {
 		f.edit("b2", "rebased");
 		const first = await awaitChanges(f.changed, 1);
 		expect(await f.success({ op: "rebase", args: { launch } })).toEqual({ baseline: expect.stringContaining("Task:\nrebased") });
-		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.baselines).toEqual([prompt(f, "Task:\nbefore"), prompt(f, "Task:\nrebased")]);
+		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.baselines).toEqual([
+			prompt(f, "Task:\nbefore"),
+			prompt(f, "Task:\nrebased"),
+		]);
 		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.dirty).toEqual([]);
 		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.notified).toBeNull();
 		error(await f.send({ op: "ack", args: { event: first.data.id } }), "UnknownEvent");
@@ -278,11 +321,15 @@ describe("Core Launch integration", () => {
 		f.disconnect();
 		await f.connect("other-session");
 		function operations(id: LaunchId): Request[] {
-			return [{ op: "bind", args: { launch: id, agent: "intruder" } }, { op: "close", args: { launch: id } }, { op: "rebase", args: { launch: id } }];
+			return [
+				{ op: "bind", args: { launch: id, agent: "intruder" } },
+				{ op: "close", args: { launch: id } },
+				{ op: "rebase", args: { launch: id } },
+			];
 		}
 		for (const request of operations("l999")) error(await f.send(request), "UnknownLaunch");
 		for (const request of operations(launch)) error(await f.send(request), "NotOwner");
-		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)).toEqual(initial);
+		expect(f.store.readLog(f.ref).launches.get(launch) ?? null).toEqual(initial);
 		f.disconnect();
 		await f.connect();
 		await f.success({ op: "bind", args: { launch, agent: "owner-agent" } });
@@ -305,33 +352,62 @@ describe("Core Launch integration", () => {
 		await f.connect();
 		const second = await awaitChanges(f.changed, 2, 500);
 		expect(second.data.id).not.toBe(first.data.id);
-		expect(structuredClone(second.data.current)).toMatchObject({ kind: "Ok", text: expect.stringContaining("Task:\njust before reconnect") });
+		expect(structuredClone(second.data.current)).toMatchObject({
+			kind: "Ok",
+			text: expect.stringContaining("Task:\njust before reconnect"),
+		});
 		error(await f.send({ op: "ack", args: { event: first.data.id } }), "UnknownEvent");
 		await f.success({ op: "ack", args: { event: second.data.id } });
 		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.dirty).toEqual([]);
 	}, 10_000);
-
 });
 
 // C2 / C3-Core of #9: launch defaults, closed-Launch guards, and race-free rebase.
 describe("Launch execution contract and lifecycle guards", () => {
 	const configured = (id: BlockId, body: string, agent?: string, isolated?: boolean): Block => ({
-		id, title: id, progress: { kind: "tracked", status: "todo", report: null },
+		id,
+		title: id,
+		progress: { kind: "tracked", status: "todo", report: null },
 		content: { kind: "task", body, ...(agent === undefined ? {} : { agent }), ...(isolated === undefined ? {} : { isolated }) },
 	});
 
 	test("launch returns the contract every root shares; a contract change neither dirties the Launch nor notifies", async () => {
-		const f = await fixture([configured("b1", "one ((b4))", "task:mid", true), configured("b2", "two", "task:mid", false), configured("b3", "three"), configured("b4", "source", "task:low")]);
-		expect(await f.success({ op: "launch", args: { run: f.run, blocks: ["b1"] } })).toEqual({ launch: "l1", kind: "prompt", text: expect.stringContaining("one source"), agent: "task:mid", isolated: true });
-		expect(await f.success({ op: "launch", args: { run: f.run, blocks: ["b1", "b2"] } })).toEqual({ launch: "l2", kind: "prompt", text: expect.stringContaining("one source\n\ntwo"), agent: "task:mid" });
-		expect(await f.success({ op: "launch", args: { run: f.run, blocks: ["b1", "b3"] } })).toEqual({ launch: "l3", kind: "prompt", text: expect.stringContaining("one source\n\nthree") });
+		const f = await fixture([
+			configured("b1", "one ((b4))", "task:mid", true),
+			configured("b2", "two", "task:mid", false),
+			configured("b3", "three"),
+			configured("b4", "source", "task:low"),
+		]);
+		expect(await f.success({ op: "launch", args: { run: f.run, blocks: ["b1"] } })).toEqual({
+			launch: "l1",
+			kind: "prompt",
+			text: expect.stringContaining("one source"),
+			agent: "task:mid",
+			isolated: true,
+		});
+		expect(await f.success({ op: "launch", args: { run: f.run, blocks: ["b1", "b2"] } })).toEqual({
+			launch: "l2",
+			kind: "prompt",
+			text: expect.stringContaining("one source\n\ntwo"),
+			agent: "task:mid",
+		});
+		expect(await f.success({ op: "launch", args: { run: f.run, blocks: ["b1", "b3"] } })).toEqual({
+			launch: "l3",
+			kind: "prompt",
+			text: expect.stringContaining("one source\n\nthree"),
+		});
 		await f.success({ op: "lock", args: { run: f.run, block: "b4" } });
 		await f.success({ op: "set", args: { run: f.run, block: "b4", field: "agent", value: null } });
 		await f.success({ op: "set", args: { run: f.run, block: "b4", field: "isolated", value: true } });
 		expect((f.store.readLog(f.ref).launches.get("l1") ?? null)!.dirty).toEqual([]);
 		await debounce();
 		expect(f.changed()).toEqual([]);
-		expect(f.store.readLog({ kind: "run", run: f.run }).entries.filter(entry => entry.data.type === "content_replaced").map(entry => entry.data)).toEqual([
+		expect(
+			f.store
+				.readLog({ kind: "run", run: f.run })
+				.entries.filter((entry) => entry.data.type === "content_replaced")
+				.map((entry) => entry.data),
+		).toEqual([
 			{ type: "content_replaced", block: "b4", content: { kind: "task", body: "source" } },
 			{ type: "content_replaced", block: "b4", content: { kind: "task", body: "source", isolated: true } },
 		]);
@@ -353,11 +429,16 @@ describe("Launch execution contract and lifecycle guards", () => {
 	});
 
 	test("an edit made while rebase fetches stays dirty and is judged against the new baseline", async () => {
-		let release: () => void = () => { throw new Error("fetch not started"); };
+		let release: () => void = () => {
+			throw new Error("fetch not started");
+		};
 		const gated: Fetcher = {
 			async fetch(target) {
 				const key = references.targetKey(target);
-				if (key === "file:new.txt") await new Promise<void>(resolve => { release = resolve; });
+				if (key === "file:new.txt")
+					await new Promise<void>((resolve) => {
+						release = resolve;
+					});
 				return { ok: true, at: Date.parse("2026-01-01T00:00:00Z"), value: { kind: "file", text: `text of ${key}` } };
 			},
 		};
@@ -382,11 +463,16 @@ describe("Launch execution contract and lifecycle guards", () => {
 	}, 8_000);
 
 	test("a judgment compiles the contents current after its fetch, so its current is what rebase accepts", async () => {
-		let release: () => void = () => { throw new Error("fetch not started"); };
+		let release: () => void = () => {
+			throw new Error("fetch not started");
+		};
 		const gated: Fetcher = {
 			async fetch(target) {
 				const key = references.targetKey(target);
-				if (key === "file:new.txt") await new Promise<void>(resolve => { release = resolve; });
+				if (key === "file:new.txt")
+					await new Promise<void>((resolve) => {
+						release = resolve;
+					});
 				return { ok: true, at: Date.parse("2026-01-01T00:00:00Z"), value: { kind: "file", text: `text of ${key}` } };
 			},
 		};
@@ -399,7 +485,8 @@ describe("Launch execution contract and lifecycle guards", () => {
 		f.edit("b2", "latest ((file:other.txt))");
 		release();
 		const event = await awaitChanges(f.changed, 1);
-		const judged = 'Task:\nlatest <external source="file:other.txt" fetched="2026-01-01T00:00:00.000Z">\ntext of file:other.txt\n</external>';
+		const judged =
+			'Task:\nlatest <external source="file:other.txt" fetched="2026-01-01T00:00:00.000Z">\ntext of file:other.txt\n</external>';
 		expect(structuredClone(event.data.current)).toMatchObject({ kind: "Ok", text: expect.stringContaining(judged) });
 		expect(await f.success({ op: "rebase", args: { launch } })).toEqual({ baseline: expect.stringContaining(judged) });
 	}, 10_000);
@@ -410,10 +497,15 @@ describe("Launch execution contract and lifecycle guards", () => {
 		const launch = await f.launch();
 		await f.success({ op: "post", args: { run: f.run, kind: "result", text: "second result", block: "b2" } });
 		expect(await f.success({ op: "rebase", args: { launch } })).toEqual({ baseline: expect.stringContaining("Task:\nsecond result") });
-		expect(structuredClone((f.store.readLog(f.ref).launches.get(launch) ?? null)!.snapshot.result)).toMatchObject({ text: expect.stringContaining("Task:\nfirst result") });
+		expect(structuredClone((f.store.readLog(f.ref).launches.get(launch) ?? null)!.snapshot.result)).toMatchObject({
+			text: expect.stringContaining("Task:\nfirst result"),
+		});
 		f.edit("b1", "Changed task:\n((b2.result))");
 		const event = await awaitChanges(f.changed, 1);
-		expect(structuredClone(event.data.current)).toMatchObject({ kind: "Ok", text: expect.stringContaining("Changed task:\nsecond result") });
+		expect(structuredClone(event.data.current)).toMatchObject({
+			kind: "Ok",
+			text: expect.stringContaining("Changed task:\nsecond result"),
+		});
 		expect(event.data.diff).toBe(references.unifiedDiff(prompt(f, "Task:\nsecond result"), prompt(f, "Changed task:\nsecond result")));
 	}, 8_000);
 });

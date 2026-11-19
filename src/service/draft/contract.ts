@@ -52,7 +52,7 @@ export type Change = "same" | "added" | "removed" | "changed";
 export type ChangeView = "changes" | "before" | "after";
 
 export type FileRead =
-	| { readonly ok: true; readonly bytes: Uint8Array; /** Absolute path that was read. */ readonly path: string }
+	| { readonly ok: true; readonly bytes: Uint8Array /** Absolute path that was read. */; readonly path: string }
 	| { readonly ok: false; readonly error: string };
 
 /** A renderer's output: nodes to draw, plus findings only known while rendering (a missing file, an oversized image). */
@@ -137,6 +137,11 @@ export function takeMarker(text: string): { readonly change: Change; readonly te
 	return { change: match[1] === "+" ? "added" : match[1] === "-" ? "removed" : "changed", text: match[2]! };
 }
 
-export function diagnostic(component: string, line: number, message: string, severity: DraftDiagnostic["severity"] = "error"): DraftDiagnostic {
+export function diagnostic(
+	component: string,
+	line: number,
+	message: string,
+	severity: DraftDiagnostic["severity"] = "error",
+): DraftDiagnostic {
 	return { line, severity, component, message };
 }

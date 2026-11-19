@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import type { BlockId, BlockResult, CompileError, CompileResult, Source } from "../src/domain/model";
+import type { CompileError, CompileResult } from "../src/domain/model";
 import type { ChecksModule } from "../src/domain/ports";
 import { checks } from "../src/service/checks";
 
 const numericTable = "| Stage | ms |\n|---|---|\n| Compile | 12 |\n| Fetch | 340 |\n| Launch | 85 |\n| Write | 9 |";
-const textTable = "| Stage | State |\n|---|---|\n| Compile | ready |\n| Fetch | complete |";
+const _textTable = "| Stage | State |\n|---|---|\n| Compile | ready |\n| Fetch | complete |";
 const ok: CompileResult = { kind: "Ok", text: "Complete prompt", sources: [] };
 const site = { block: "b1", reference: "((b2))" } as const;
 const compileErrors: readonly CompileError[] = [
@@ -88,7 +87,8 @@ describe("deterministic findings", () => {
 });
 
 describe("design draft findings", () => {
-	const cleanDesign = "Design overview.\n\n## A Where · Scope\nThe service.\n\n## B What · Architecture\nA complete design.\n\n## C How · Execution\nImplement the plan.";
+	const cleanDesign =
+		"Design overview.\n\n## A Where · Scope\nThe service.\n\n## B What · Architecture\nA complete design.\n\n## C How · Execution\nImplement the plan.";
 	const designContent = { kind: "design", requirement: "A user requirement.", design: cleanDesign } as const;
 
 	test("design content skips empty expansion and chart checks", () => {
@@ -96,7 +96,7 @@ describe("design draft findings", () => {
 			...input,
 			content: { ...designContent, requirement: numericTable, design: `## A Metrics\n${numericTable}` },
 			expansions: [{ ...ok, text: " \n\t " }],
-			render: { ...input.render, },
+			render: { ...input.render },
 		});
 		expect(findings.empty_expansion).toBe(false);
 		expect(findings.draft).toBe(false);
@@ -126,25 +126,31 @@ describe("design draft findings", () => {
 		expect(checks.findings({ ...input, content: { ...designContent, design: "## A Architecture\nA design." } }).outline).toBe(true);
 		expect(checks.findings({ ...input, content: { ...designContent, requirement: "free text" } }).outline).toBe(false);
 		expect(checks.findings({ ...input, content: { kind: "task", body: "Do it." } }).outline).toBe(true);
-		expect(checks.findings({ ...input, content: { kind: "task", body: "```js\nawait playbook.run({ blocks: [\"b2\"] });\n```" } }).outline).toBe(false);
+		expect(
+			checks.findings({ ...input, content: { kind: "task", body: '```js\nawait playbook.run({ blocks: ["b2"] });\n```' } }).outline,
+		).toBe(false);
 	});
 
 	for (const draftErrors of [0, 1, 2]) {
 		test(`a clean design reflects ${draftErrors} render-reported draft errors`, () => {
-			expect(checks.findings({
-				...input,
-				content: designContent,
-				render: { ...input.render, draftErrors },
-			}).draft).toBe(draftErrors > 0);
+			expect(
+				checks.findings({
+					...input,
+					content: designContent,
+					render: { ...input.render, draftErrors },
+				}).draft,
+			).toBe(draftErrors > 0);
 		});
 	}
 
 	test("task draft diagnostics include malformed content and render-reported errors", () => {
-		expect(checks.findings({
-			...input,
-			content: { kind: "task", body: "## A First\nFirst panel.\n\n## A Second\n```typescript\nconst value = 1;" },
-			render: { ...input.render, draftErrors: 2 },
-		}).draft).toBe(true);
+		expect(
+			checks.findings({
+				...input,
+				content: { kind: "task", body: "## A First\nFirst panel.\n\n## A Second\n```typescript\nconst value = 1;" },
+				render: { ...input.render, draftErrors: 2 },
+			}).draft,
+		).toBe(true);
 	});
 });
 
@@ -173,7 +179,7 @@ describe("closed judge report validation", () => {
 	});
 
 	test("the missing-material verdict switches at its inclusive threshold", () => {
-		const question = checks.questions.find(question => question.id === "missing");
+		const question = checks.questions.find((question) => question.id === "missing");
 		if (!question) throw new Error("Missing-material question absent");
 		expect(0.5 - Number.EPSILON >= question.threshold).toBe(false);
 		expect(0.5 >= question.threshold).toBe(true);
