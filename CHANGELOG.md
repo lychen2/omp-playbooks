@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.53] - 2026-11-20
+
 ### Changed
 
 - `/playbook-add` asks in two HTML forms through omp's `ui.formDialog`: the first shows the session message, the log (the Playbook itself or a Run) and the record kind on one screen, and the second the optional block of the chosen log. The four one-question selects are gone. An omp that cannot show forms reports one error and asks nothing
