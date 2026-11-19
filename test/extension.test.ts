@@ -330,7 +330,6 @@ async function harness(kind: "main" | "sub" = "main") {
 	};
 }
 type Answer = (html: string) => HtmlFormData;
-/** Answers a form as a person would: each value picks the option that carries it; questions not named keep the host's defaults. */
 function choose(...values: string[]): Answer {
 	return (html) => {
 		const form = parseHtmlForm(html);
@@ -343,7 +342,6 @@ function choose(...values: string[]): Answer {
 		return data;
 	};
 }
-/** The labels of one named choice field, as the host draws them. */
 function optionsOf(html: string, name: string): string[] {
 	const field = parseHtmlForm(html).fields.find((item) => item.name === name);
 	if (field?.kind !== "choice") throw new Error(`no choice field ${name}`);

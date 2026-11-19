@@ -22,10 +22,8 @@ import { toolParameters } from "./params";
 import { ensureTernPlugin, type TernPluginState } from "./tern-setup";
 import { playbookTopics } from "./topics";
 
-/** A block body that is one fenced js/py code block is an orchestration block (launch-events.md §1). */
 const ORCHESTRATION = /^\s*```(js|py)\s*\n([\s\S]*)\n```\s*$/;
 
-/** The main session's notice for what Tern setup did; nothing when the daemon already ran this version. */
 function ternNotice(state: TernPluginState): { readonly text: string; readonly level: "info" | "warning" } | null {
 	switch (state.kind) {
 		case "absent":
@@ -61,22 +59,18 @@ function ternNotice(state: TernPluginState): { readonly text: string; readonly l
 	}
 }
 
-/** One answer a form question offers: the value a submission carries, the label shown and what it stands for. */
 type Choice<T> = { readonly value: string; readonly label: string; readonly choice: T };
 
-/** Text as HTML character data and attribute values: the form parser decodes it back, so labels read exactly as written. */
 function escapeHtml(text: string): string {
 	return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-/** A long list as one dropdown row: each option shows its full label when the row expands. */
 function dropdownHtml(name: string, question: string, options: readonly Choice<unknown>[]): string {
 	return `<label for="${name}">${escapeHtml(question)}</label>\n<select id="${name}" name="${name}">\n${options
 		.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
 		.join("\n")}\n</select>`;
 }
 
-/** A short list as a radio group; `required` keeps the person from submitting it unanswered. */
 function radioHtml(name: string, question: string, options: readonly Choice<unknown>[]): string {
 	return `<p>${escapeHtml(question)}</p>\n${options
 		.map(
@@ -86,26 +80,18 @@ function radioHtml(name: string, question: string, options: readonly Choice<unkn
 		.join("\n")}`;
 }
 
-/** The option a submission chose for one question; a value outside the offered options is an error, never a fallback. */
 function chosen<T>(data: Record<string, string | number | string[]>, name: string, choices: readonly Choice<T>[], unknown: string): T {
 	const picked = choices.find((item) => item.value === data[name]);
 	if (picked === undefined) throw new Error(unknown);
 	return picked.choice;
 }
 
-/**
- * The Tern pane this omp runs in: the session daemon sets TERN_PANE to the pane's numeric id, which
- * also names this session's pane endpoint. Any other value or none is not a Tern pane.
- */
 function ternPane(): string | null {
 	const pane = process.env.TERN_PANE;
 	return pane !== undefined && /^[0-9]+$/.test(pane) ? pane : null;
 }
 
 export default async function (pi: ExtensionAPI): Promise<void> {
-	// A Playbook lives in a Tern pane beside its coordinator: outside one, this extension adds no
-	// tool, topic, command, notice or eval rewrite to the session. Wherever omp runs it with `tern`
-	// on PATH, the factory links the Tern plugin (tern-setup.ts), inside a pane or not.
 	const inTern = ternPane();
 	if (inTern === null) {
 		await ensureTernPlugin();
@@ -114,7 +100,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	const pane: string = inTern;
 	const schemas = toolParameters(pi.zod);
 	const { frames, readResult, revisionsResult, runsResult, helloResult, postResult, launchRecord, evalInput } = schemas.wire;
-	/** The eight device schemas; `wire` holds the frames and results they are not. */
 	type Tools = Omit<typeof schemas, "wire">;
 	type InternalOf<K extends keyof Tools> = ReturnType<Tools[K]["toInternal"]>;
 
@@ -124,21 +109,16 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
 	type LaunchData = Extract<EventPayload, { event: "launch_requested" }>["data"];
 	type QueuedLaunch = { readonly absolute: string; readonly data: LaunchData };
-	// A Launch click reaches the model only at an input-ready state: requests made while this session
-	// runs a turn wait here and leave together as one notice when the turn ends. `busy` follows the
-	// session's own agent_start/agent_end; `delivering` keeps deliveries in order, one at a time.
 	let launches: QueuedLaunch[] = [];
 	let busy = false;
 	let delivering: Promise<void> = Promise.resolve();
 
-	/** Send every held launch request as one notice, unless a turn started meanwhile (its agent_end delivers them). */
 	function deliverLaunches(ctx: ExtensionContext): Promise<void> {
 		const delivered = delivering.then(async () => {
 			if (busy || launches.length === 0) return;
 			const batch = launches;
 			launches = [];
 			const content = await launchNotice(batch);
-			// Still unwinding the ended turn: followUp waits for idle (or, after Esc, for the person's next prompt).
 			pi.sendMessage(
 				{ customType: "playbook-event", content, display: true },
 				{ deliverAs: ctx.isIdle() ? "aside" : "followUp", triggerTurn: true },
@@ -148,7 +128,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		return delivered;
 	}
 
-	/** Absolute Playbook path for a tool call: the given file, else the only connected document. */
 	async function documentFor(file: string | undefined): Promise<string> {
 		if (file !== undefined) {
 			try {
@@ -191,10 +170,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 						input,
 					) as ServerFrame /* omptype marks an optional-valued key as optional; the wire ok-frame always carries result */,
 				async (event: EventPayload) => {
-					// A human interrupt only revokes the lock of an in-flight playbook_edit, whose
-					// mutation then fails with NotLocked; nothing else in this session depends on it.
 					if (event.event === "interrupted") return;
-					// A SUBAGENT dropdown opened: the extension answers from this session; the model is not involved.
 					if (event.event === "agents_requested") {
 						await clients.get(absolute)?.request({ op: "agents", args: { result: availableAgents(pi.getAllTools()) } });
 						return;
@@ -223,7 +199,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	const OPEN_WAIT_MS = 10_000;
 	const startFailed = (message: string): Reply => ({ id: "", ok: false, error: { code: "StartFailed", message } });
 
-	/** K2 `playbook_open`: connect, starting the service in a Tern pane beside this session when none listens. */
 	async function open(file: string, ctx: ExtensionContext): Promise<Reply> {
 		const absolute = await documentFor(file);
 		const client = await clientFor(absolute, ctx);
@@ -246,7 +221,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		}
 	}
 
-	/** `playbook_edit` on an existing block: lock, change, unlock within this one call (K2). */
 	async function editBlock(
 		file: string | undefined,
 		ctx: ExtensionContext,
@@ -293,8 +267,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		return reply({ id: "", ok: false, error: { code, message } });
 	};
 
-	// Model-facing text starts with the short purpose omp shows of a plugin device;
-	// full descriptions end with pointers to the tool's own xd:// topics (./topics.ts).
 	type Tool<K extends keyof Tools> = {
 		readonly name: K;
 		readonly label: string;
@@ -537,12 +509,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	] as const;
 	type AnyTool = (typeof tools)[number];
 
-	/**
-	 * Registers the tools as `xd://` devices (`loadMode: "discoverable"`) once per extension binding.
-	 * Called from the main session's session_start, after the session is built: omp installs a late
-	 * registration into the live registry and mounts it with a hidden mount notice, so the system and
-	 * tools prefix stays byte-stable and subagent sessions, which never register, carry none of them.
-	 */
 	let registered = false;
 	function registerTools(entries: readonly AnyTool[]): void {
 		if (registered) return;
@@ -560,8 +526,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 					tool.description + (pointers.length ? `\n\nTopics — read the one a call needs before making it:\n${pointers.join("\n")}` : ""),
 				docTopics: () => Object.fromEntries(ownTopics.map((topic) => [topic.name, topic.read()])),
 				async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-					// Each entry pairs its own schema with its own runner. A call that does not parse is the caller's
-					// error (BadValue), not a service state; only the run itself can fail as NoService or Disconnected.
 					const parse = tool.parameters.parse as (value: unknown) => unknown;
 					const toInternal = tool.toInternal as (value: unknown) => unknown;
 					let internal: unknown;
@@ -590,7 +554,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
 	const header = tr("This is a Playbook document service notice, not a user message", "这是 Playbook 文档服务的通知，不是用户消息");
 
-	/** The next call for one launch request: which execution its blocks take and how to start it. */
 	async function launchNext(absolute: string, data: LaunchData): Promise<string> {
 		const docLiteral = JSON.stringify(absolute);
 		const blocks = JSON.stringify(data.blocks);
@@ -620,11 +583,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 				);
 	}
 
-	/**
-	 * The launch requests of one delivery as one notice: a single request reads like every other
-	 * notice; several (clicked while this session was busy) are numbered in click order, each with its
-	 * own next call, followed by one data line per request.
-	 */
 	async function launchNotice(batch: readonly QueuedLaunch[]): Promise<string> {
 		const nexts = await Promise.all(batch.map((item) => launchNext(item.absolute, item.data)));
 		const data = batch.map((item) => JSON.stringify({ doc: item.absolute, event: "launch_requested", data: item.data }));
@@ -636,7 +594,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		return [header, intro, ...nexts.map((next, index) => `${index + 1}. ${next}`), ...data].join("\n");
 	}
 
-	/** Event aside: header line, the next call to make, then the data (launch-events.md §6). */
 	async function notice(
 		absolute: string,
 		event: Exclude<EventPayload, { event: "interrupted" | "agents_requested" | "launch_requested" }>,
@@ -696,12 +653,9 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		return `${header}\n${next}\n${JSON.stringify({ doc: absolute, ...event })}`;
 	}
 
-	// The Playbook-specific eval layer (K2 "eval 辅助"): only in the coordinator session.
 	const usesHelpers = /\bplaybook\.(?:run|agent|result|spawn|stop|post|timeline|read|context)\b/;
 	const waits = /\bplaybook\.(?:run|result)\s*\(/;
 	const execCall = /^\s*(?:await\s+)?playbook\.exec\(\s*["'](l[1-9][0-9]*)["']\s*(?:,\s*(["'])(.+?)\2\s*)?\)\s*;?\s*$/;
-	// Code text for the eval kernel, not an import of this module: the kernel loads the helper
-	// from this installation's path, which is known only at run time.
 	const importLine = (context: Record<string, string>): string =>
 		`// Added by the omp-playbooks extension, not written by the model.\nvar playbook = (await import(${JSON.stringify(preludeEntry)})).createPlaybook({ tool, agent, ...${JSON.stringify(context)} });\n`;
 
@@ -731,7 +685,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 						`${launchId} 是提示 Launch；请用 \`await playbook.spawn("${launchId}")\` 或 \`playbook.run\` 启动其 subagent`,
 					),
 				};
-			// The latest baseline: the frozen snapshot until a rebase accepted newer code.
 			const fence = ORCHESTRATION.exec(record.baselines?.at(-1) ?? record.snapshot.result.text);
 			if (!fence)
 				return {
@@ -766,11 +719,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		};
 	});
 
-	/**
-	 * A pane endpoint request from a document service: `attach` connects this session to that Playbook's
-	 * service as its coordinator (what playbook_open does for an already running service), then tells the
-	 * model so in the transcript without starting a turn.
-	 */
 	async function onPaneRequest(request: PaneRequest, ctx: ExtensionContext): Promise<PaneReply> {
 		const here = { ok: true as const, session: ctx.sessionManager.getSessionId(), cwd: ctx.cwd };
 		if (request.op === "ping") return here;
@@ -814,8 +762,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		if (ctx.agent.kind === "main") busy = true;
 	});
 
-	// The turn ended at an input-ready state: deliver the launch requests held during it. An automatic
-	// continuation keeps the turn going; a settle that only awaits background work leaves the session open for input.
 	pi.on("agent_end", (event, ctx) => {
 		if (ctx.agent.kind !== "main" || (event.willContinue === true && event.awaitingAsyncWork !== true)) return;
 		busy = false;
@@ -912,7 +858,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 						{ value: "failure", label: tr("Failure", "失败"), choice: "failure" },
 						{ value: "retrospective", label: tr("Retrospective", "复盘"), choice: "retrospective" },
 					];
-					// One form: its questions share one section, so the host draws them on one screen without tabs.
 					const first = await ui.formDialog(
 						`<form>\n<fieldset>\n${dropdownHtml("message", tr("Choose session message", "选择会话消息"), messageChoices)}\n${radioHtml("log", tr("Choose log", "选择日志"), logChoices)}\n${radioHtml("kind", tr("Choose record kind", "选择记录类型"), kindChoices)}\n</fieldset>\n</form>`,
 					);
@@ -920,7 +865,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 					const message = chosen(first.data, "message", messageChoices, tr("Unknown message selection", "消息选择无效"));
 					const target = chosen(first.data, "log", logChoices, tr("Unknown log selection", "日志选择无效"));
 					const kind = chosen(first.data, "kind", kindChoices, tr("Unknown record kind selection", "记录类型选择无效"));
-					// The block list is the chosen log's scope, so it is read only after that answer.
 					const document = readResult.parse(await result(client, { op: "read", args: scoped(target) }));
 					const blockChoices: readonly Choice<BlockId | undefined>[] = [
 						{ value: "none", label: tr("Not about a block", "不关于块"), choice: undefined },
