@@ -1,10 +1,4 @@
-// The implicit end of every prompt Launch: the subagent that runs a block writes the block's status and
-// completion report into the Playbook file itself, so its progress never depends on the coordinator.
 import { tr } from "../../omomp-shared/i18n";
-/**
- * Instructions appended to a prompt Launch's text. `file` is the document the Launch belongs to (the
- * template or a Run file); `blocks` are the Launch's tracked roots.
- */
 export function launchFooter(file: string, blocks: readonly { readonly id: string; readonly title: string }[]): string {
 	const names = blocks.map((block) => `${block.id}「${block.title.trim() || "未命名"}」`).join("、");
 	const englishNames = blocks.map((block) => `${block.id} “${block.title.trim() || "Unnamed"}”`).join(", ");

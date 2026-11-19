@@ -1,12 +1,3 @@
-// Parameter definitions for the eight playbook_* devices.
-//
-// The public shape is what the host renders to the model (rule §工具参数「形状」): one flat object
-// per device whose `op` enum selects the branch, every field described where it is declared, no
-// object unions, no dictionaries and no `.nullable()`.
-//
-// The internal shape is the discriminated union the tool runner and the K1 service already speak.
-// `toInternal` parses a public call with the strict branch its `op` names, so a field that belongs
-// to another op is rejected and the error names it.
 import type * as zod from "@oh-my-pi/omptype/zod";
 import { tr } from "../../omomp-shared/i18n";
 import { parseBlockId, parseLaunchId, parseRunId } from "../domain/model";
@@ -19,7 +10,6 @@ const LAUNCH_ID = /^l[1-9][0-9]*$/;
 const PANEL_ID = /^[A-Z][0-9]*$/;
 
 export function toolParameters(z: Zod) {
-	// Internal field schemas: the shapes the service protocol expects, shared by every op.
 	const doc = z.string().optional();
 	const block = z
 		.string()
@@ -46,7 +36,6 @@ export function toolParameters(z: Zod) {
 			return id;
 		});
 	const kind = z.enum(["update", "result", "failure", "retrospective"]);
-	/** A task block's default agent, as K1 stores it: trimmed and not blank. */
 	const agentName = z.string().trim().min(1);
 	const positive = z.number().int().positive();
 	const report = z.union([
@@ -54,9 +43,7 @@ export function toolParameters(z: Zod) {
 		z.object({ kind: z.literal("judge_unavailable") }).strict(),
 	]);
 
-	// Public field builders: validated but not transformed, each carrying the description that
-	// survives into the rendered `### Schema`. `doc` and `run` are shared, so their description is
-	// written once here; op-conditional fields go optional at the end of their chain so the marker
+	// op-conditional fields go optional at the end of their chain so the marker
 	// survives `.describe()`.
 	const docField = z
 		.string()
@@ -198,8 +185,6 @@ export function toolParameters(z: Zod) {
 		reset: z.boolean().optional(),
 	});
 
-	// Internal branches: the existing tool-internal discriminated unions, unchanged. `toInternal`
-	// selects one branch by `op` so a foreign or missing field is reported against that branch.
 	const openInternal = z.object({ doc: z.string() }).strict();
 
 	const readBranches = {
@@ -325,8 +310,6 @@ export function toolParameters(z: Zod) {
 		launchBranches.close,
 	]);
 
-	// Public parameter definitions: one flat object per device, every field described. The `op`
-	// enum selects the branch; all other fields are optional because only some values use them.
 	const openParams = z
 		.object({
 			doc: z.string().describe("Playbook file path to open, for example `/home/me/book.yaml`."),
@@ -525,14 +508,12 @@ export function toolParameters(z: Zod) {
 		})
 		.strict();
 
-	/** A public call missing a field its `op` needs; names the field the model knows. */
 	const needs = (tool: string, op: string, field: string): never => {
 		throw new Error(tr(`${tool} op ${op} requires ${field}`, `${tool} 的 ${op} op 需要 ${field}`));
 	};
 
 	function readToInternal(flat: ReturnType<typeof readParams.parse>): ReturnType<typeof readInternal.parse> {
 		const candidate: Record<string, unknown> = { ...flat };
-		// The public enum offers `read`, but the internal plain-read branch carries no `op` key.
 		if (flat.op !== "revisions") delete candidate.op;
 		return (flat.op === "revisions" ? readBranches.revisions : readBranches.read).parse(candidate);
 	}
@@ -637,7 +618,6 @@ export function toolParameters(z: Zod) {
 			parameters: launchParams,
 			toInternal: (flat: ReturnType<typeof launchParams.parse>) => launchBranches[flat.op].parse(flat),
 		},
-		// The wire shapes the tools and their events share; unchanged, and not sent to the model.
 		wire: {
 			site,
 			compileError,

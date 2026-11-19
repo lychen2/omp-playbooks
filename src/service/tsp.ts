@@ -4,8 +4,6 @@ import type { FrameOp, FrameStatus, TspEvent, TspInput, TspSession } from "./tsp
 const ESC = "\x1b";
 const APC = `${ESC}_tsp;`;
 const ST = `${ESC}\\`;
-// Terminal → program messages through a Windows ConPTY: its input parser drops APC strings but
-// passes OSC, so Tern frames them as `ESC ] 877 ; tsp;… ST`, or with BEL as the terminator.
 const OSC = `${ESC}]877;tsp;`;
 const BEL = "\x07";
 const OVERDUE_MS = 2_000;
@@ -18,7 +16,6 @@ function index(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** Unknown and malformed events remain observable, but never become trusted domain events. */
 function parseEvent(body: unknown): TspEvent {
 	const event = record(body);
 	if (event) {
@@ -44,7 +41,6 @@ function parseEvent(body: unknown): TspEvent {
 				if (typeof id === "string") return { ev: event.ev, id };
 				break;
 			case "action": {
-				// `mods` lists held modifiers (`shift`, `ctrl`, `alt`, `meta`) and is absent when none is.
 				const mods =
 					event.mods === undefined
 						? []
@@ -144,8 +140,6 @@ export function createTspSession(
 			let end = Math.min(start + apcLimit, bytes.length);
 			while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
 			let part = bytes.subarray(start, end).toString("utf8");
-			// A chunk starting with a parameter-shaped segment must end before its semicolon.
-			// With no following semicolon Tern correctly treats that segment as body text.
 			const parameter = /^[A-Za-z0-9_-]+=[\x21-\x3a\x3c-\x7e]*;/.exec(part);
 			if (parameter) {
 				end = start + Buffer.byteLength(parameter[0]) - 1;
@@ -259,7 +253,6 @@ export function createTspSession(
 				continue;
 			}
 			if (buffer.startsWith(OSC)) {
-				// A JSON body never holds BEL or ESC, so the first of either terminator ends the message.
 				const st = buffer.indexOf(ST, OSC.length);
 				const bel = buffer.indexOf(BEL, OSC.length);
 				const end = st < 0 ? bel : bel < 0 ? st : Math.min(st, bel);
@@ -280,8 +273,6 @@ export function createTspSession(
 			// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal input is matched at the byte level, ESC is the lead-in
 			if (APC.startsWith(buffer) || OSC.startsWith(buffer) || `${ESC}[?`.startsWith(buffer) || /^\x1b\[\?[0-9;:]*$/.test(buffer)) {
 				keys(keyBytes);
-				// ESC is also a standalone key, and Alt+] arrives as `ESC ]`, the start of an OSC prefix:
-				// these ambiguous prefixes get a short delay before they count as keys.
 				if (buffer === ESC || buffer === `${ESC}[` || (buffer.length > 1 && OSC.startsWith(buffer))) {
 					escapeTimer = setTimeout(() => {
 						const bytes = buffer;

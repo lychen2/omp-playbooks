@@ -1,13 +1,9 @@
-// The Where/What/How outline a card's text for a person follows (a task body, a design): panels
-// whose titles start with the role word, every role present with content, roles in that order.
-
 import { tr } from "../../../omomp-shared/i18n";
 import { type Panel, parseDocument, type Segment } from "./document";
 
 export type OutlineRole = "Where" | "What" | "How";
 
 const ROLES: readonly OutlineRole[] = ["Where", "What", "How"];
-/** What each role's panels answer; the problems and the coordinator's guidance use the same words. */
 function roleMeaning(): Readonly<Record<OutlineRole, string>> {
 	return {
 		Where: tr("object, location, scope, current state and evidence", "对象、位置、范围、现状与证据"),
@@ -15,7 +11,6 @@ function roleMeaning(): Readonly<Record<OutlineRole, string>> {
 		How: tr("steps, verification, failure handling and rollback", "步骤、验证、失败处理与回退"),
 	};
 }
-/** The role word starting a panel title (case as written here), then the title's end, a space or a separator. */
 const ROLE = /^(Where|What|How)(?=$|[\s·:：|｜\-—])/;
 
 function roleOf(panel: Panel): OutlineRole | null {
@@ -23,7 +18,6 @@ function roleOf(panel: Panel): OutlineRole | null {
 	return ROLES.find((role) => role === word) ?? null;
 }
 
-/** Something a person reads: prose, a table, an image, or a fence with a body. */
 function readable(segment: Segment): boolean {
 	switch (segment.kind) {
 		case "markdown":
@@ -36,11 +30,6 @@ function readable(segment: Segment): boolean {
 	}
 }
 
-/**
- * What keeps `text` from the outline; empty when it follows it. A lead and panels of no role may
- * sit anywhere; a role may span several panels (`How · 处置`, `How · 验收与回退`) as long as no
- * panel goes back to an earlier role. An empty text lacks every role.
- */
 export function outlineProblems(text: string): readonly string[] {
 	const roles = parseDocument(text).panels.flatMap((panel) => {
 		const role = roleOf(panel);

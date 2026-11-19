@@ -1,12 +1,8 @@
-// Text helpers shared by draft component renderers.
-
-/** A styled run for TSP `text`/`kv`/`table`/`tree` labels; `s` holds semantic tokens (strong, em, code, accent, success, warning, error, muted, ins, del). */
 export interface Span {
 	readonly t: string;
 	readonly s?: string;
 }
 
-/** Inline Markdown (`**strong**`, `*em*`, `` `code` ``, `~~del~~`) as spans, each also carrying `base` tokens. */
 export function inlineSpans(text: string, base = ""): Span[] {
 	const spans: Span[] = [];
 	const style = (extra: string): string | undefined => [base, extra].filter(Boolean).join(" ") || undefined;
@@ -29,14 +25,12 @@ export function inlineSpans(text: string, base = ""): Span[] {
 	return spans;
 }
 
-/** Plain text of inline Markdown (markers removed), for SVG labels and alt text. */
 export function plainText(text: string): string {
 	return inlineSpans(text)
 		.map((span) => span.t)
 		.join("");
 }
 
-/** Escape text for SVG/XML content and attribute values. */
 export function escapeXml(text: string): string {
 	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
@@ -55,14 +49,12 @@ function wide(code: number): boolean {
 	);
 }
 
-/** Estimated width of `text` in SVG user units at `fontSize` (sans-serif): wide CJK glyphs take a full em, others about 0.6 em. */
 export function textWidth(text: string, fontSize: number): number {
 	let units = 0;
 	for (const char of text) units += wide(char.codePointAt(0)!) ? 1 : 0.6;
 	return units * fontSize;
 }
 
-/** Break `text` into lines no wider than `maxWidth` at `fontSize`: at spaces for spaced scripts, per glyph for CJK. */
 export function wrapText(text: string, maxWidth: number, fontSize: number): string[] {
 	const lines: string[] = [];
 	let line = "";

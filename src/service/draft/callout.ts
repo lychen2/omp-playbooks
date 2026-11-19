@@ -81,7 +81,6 @@ export function parseCallout(input: FenceInput): Parsed<CalloutSpec> {
 }
 
 export function renderCallout(spec: CalloutSpec, ctx: RenderContext): Rendered {
-	// A note in comment style, not a box: `//`, the title in the callout's tone, then the text.
 	return {
 		nodes: [
 			{

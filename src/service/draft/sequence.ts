@@ -113,8 +113,6 @@ export function parseSequence(input: FenceInput): Parsed<SequenceSpec> {
 	return { ok: true, value: { participants, numbered: options.includes("num"), steps }, diagnostics };
 }
 
-// wrapText preserves unbroken Latin words; split those locally as well so labels
-// (including URLs and identifiers) cannot escape the diagram's measured bounds.
 function labelLines(text: string, width: number): string[] {
 	const result: string[] = [];
 	for (const line of wrapText(plainText(text), width, 14)) {
@@ -222,7 +220,6 @@ export function renderSequence(spec: SequenceSpec, ctx: RenderContext): Rendered
 				`<line x1="${xs[index]}" y1="${actorHeight + 12}" x2="${xs[index]}" y2="${height - 12}" stroke="var(--border)" stroke-dasharray="4 5"/><rect x="${xs[index]! - actorWidth / 2}" y="12" width="${actorWidth}" height="${actorHeight}" rx="5" fill="var(--surface)" stroke="var(--border)"/>${text(actorLabels[index]!, xs[index]!, 22)}`,
 		)
 		.join("");
-	// Keep the natural geometry for zooming; cap only the displayed size.
 	const displayWidth = Math.min(1000, width);
 	const displayHeight = (height * displayWidth) / width;
 	const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${displayWidth}" height="${displayHeight}" viewBox="0 0 ${width} ${height}" role="img"><g font-family="sans-serif" font-size="14" fill="var(--fg)">${actors}${body.join("")}</g></svg>`;

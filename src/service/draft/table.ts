@@ -12,11 +12,9 @@ interface TableColumn {
 
 export interface TableSpec {
 	readonly columns: readonly TableColumn[];
-	/** Body rows have exactly one cell for each column. */
 	readonly rows: readonly (readonly string[])[];
 }
 
-/** Split structural pipes, removing only the backslash that escapes a literal pipe. */
 function splitRow(source: string): string[] {
 	const text = source.trim();
 	const cells: string[] = [];
@@ -103,12 +101,10 @@ export function renderTable(spec: TableSpec, ctx: RenderContext): Rendered {
 		id: `${ctx.id}.column.${index}`,
 		head: inlineSpans(column.header),
 		align: column.align,
-		// Without grow Tern sizes a column to its head and cuts longer cells to "…".
 		grow: 1,
 	}));
 	const rows = spec.rows.map((row, index) => {
 		const cells: Record<string, readonly Span[]> = {};
-		// A cell is text, not a control: a slot shows its current value, switched where it is used in prose.
 		const shown = (cell: string): string =>
 			slotParts(cell, ctx.slots)
 				.map((part) => (part.kind === "slot" ? ctx.slots.get(part.name)!.value : part.text))

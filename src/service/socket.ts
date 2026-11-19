@@ -26,7 +26,6 @@ function flag(value: unknown, name: string): boolean {
 	return value;
 }
 
-/** A task block's default agent: a non-blank name, trimmed. */
 function agentName(value: unknown): string {
 	const name = string(value, "agent").trim();
 	if (name === "") throw new BadInput(tr("agent must not be blank", "agent 不能为空"));
@@ -88,7 +87,6 @@ function report(value: unknown): JudgeReport {
 	}
 }
 
-/** Parse transport input only; existence, ownership, and other business rules belong to the handler. */
 export function parseRequest(op: string, args: unknown): Request | ProtocolError {
 	try {
 		const a = object(args, "args");
@@ -274,30 +272,21 @@ export function parseRequest(op: string, args: unknown): Request | ProtocolError
 	}
 }
 
-/** Another document service already listens for this document (design/README.md I1). */
 export class ServiceRunning extends Error {}
 
 function errorCode(error: unknown): string | undefined {
 	return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : undefined;
 }
 
-/** One accepted connection plus the little state its framing needs. */
 interface Link {
 	readonly conn: Connection;
 	readonly connection: IpcConnection;
-	/** Frames waiting for the host's write queue to fall back under its 1 MiB high-water mark. */
 	readonly queued: string[];
-	/** Requests are handled one at a time, in arrival order. */
 	tail: Promise<void>;
 	writing: boolean;
 	closed: boolean;
 }
 
-/**
- * A newline JSON adapter on the host's IPC endpoint. Core owns hello admission and all document state;
- * the host owns what the endpoint is on this platform (named pipe or socket file), claiming it, and
- * taking over one nobody listens on, so a second live service is refused here as `ServiceRunning`.
- */
 export async function serveK1(endpoint: string, handler: K1Handler): Promise<{ close(): void }> {
 	const links = new Set<Link>();
 	let nextConnection = 1;
@@ -309,7 +298,6 @@ export async function serveK1(endpoint: string, handler: K1Handler): Promise<{ c
 		pump(link);
 	}
 
-	/** Writes queued frames in order, waiting for the host whenever its queue passes the high-water mark. */
 	function pump(link: Link): void {
 		if (link.writing || link.closed) return;
 		link.writing = true;
@@ -337,7 +325,6 @@ export async function serveK1(endpoint: string, handler: K1Handler): Promise<{ c
 			frame = object(value, "request");
 			string(frame.id, "id");
 		} catch {
-			// There is no request id to correlate a response with.
 			link.conn.close();
 			return;
 		}
@@ -406,19 +393,16 @@ export async function serveK1(endpoint: string, handler: K1Handler): Promise<{ c
 	};
 }
 
-/** Result of asking the document's service to show its pane (contracts.md K1 `reveal`). */
 export type RevealOutcome =
 	| { readonly kind: "revealed" }
 	| { readonly kind: "absent" }
 	| { readonly kind: "failed"; readonly message: string };
 
-/** One-shot K1 client: `reveal` needs no hello and never becomes the coordinator. */
 export async function revealService(endpoint: string): Promise<RevealOutcome> {
 	let connection: IpcConnection;
 	try {
 		connection = await IpcConnection.connect(endpoint, { framing: "lines" });
 	} catch (error) {
-		// No endpoint, or one nobody listens on: no service to show.
 		const code = errorCode(error);
 		if (code === "ENOENT" || code === "ECONNREFUSED") return { kind: "absent" };
 		const message = error instanceof Error ? error.message : String(error);

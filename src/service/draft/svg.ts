@@ -1,7 +1,6 @@
 import { tr } from "../../../omomp-shared/i18n";
 import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered } from "./contract";
 
-/** Validated raw SVG; dimensions are positive user units, not CSS layout sizes. */
 export interface SvgSpec {
 	readonly source: string;
 	readonly width: number;
@@ -10,7 +9,6 @@ export interface SvgSpec {
 
 const numberPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
-/** Decode only XML's built-in references; declarations and custom entities are unsupported. */
 function xmlText(value: string): string {
 	return value.replace(
 		/&(?:#(x[0-9a-f]+|\d+)|(amp|lt|gt|quot|apos));/gi,
@@ -121,7 +119,7 @@ export function parseSvg(input: FenceInput): Parsed<SvgSpec> {
 	let viewBoxAttribute: string | undefined;
 	let offset = 0;
 
-	// Inspect markup, not text inside comments/CDATA or quoted attributes. Never rewrite source.
+	// Never rewrite source.
 	while (offset < source.length) {
 		if (source[offset] !== "<") {
 			const end = source.indexOf("<", offset);

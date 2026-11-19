@@ -11,7 +11,6 @@ export function fence(input: Pick<FenceInput, "args" | "line" | "lines">): Fence
 	return { ...input, starts, body: { start: 0, end: Math.max(0, offset - 1) } };
 }
 
-/** Read-only component harness; interaction tests supply a recording EditHost instead. */
 export const passiveEdit: EditHost = {
 	text: (_id, _span, _multiline, view) => view,
 	slot: (id, name) => ({ id, k: "text", p: { text: name } }),
@@ -24,5 +23,4 @@ export const passiveEdit: EditHost = {
 	reference: (id, text, _target, alias) => ({ id, k: "text", p: { text: alias ?? text } }),
 };
 export const renderDefaults: Pick<RenderContext, "slots" | "edit"> = { slots: new Map(), edit: passiveEdit };
-/** A document with no other block's slots. */
 export const noSlots: SlotScope = { table: new Map(), blocks: new Set() };

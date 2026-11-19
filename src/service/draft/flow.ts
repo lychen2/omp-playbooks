@@ -45,7 +45,6 @@ export interface FlowSpec {
 	readonly edges: readonly FlowEdge[];
 	readonly groups: readonly FlowGroup[];
 	readonly marked: boolean;
-	/** The fence body, and its `//` comment lines kept when a chain is rewritten. */
 	readonly body: Span;
 	readonly comments: readonly string[];
 }
@@ -402,7 +401,6 @@ function nodeSvg(p: Positioned, view: ChangeView): string {
 	return `<g${change === "removed" ? ' opacity="0.45"' : ""}><g fill="var(--surface)" stroke="${stroke}" stroke-width="${change === "changed" || p.node.highlighted ? 2.5 : 1.5}">${shape}</g>${labelSvg(p.lines, x + w / 2, y + h / 2 - ((p.lines.length - 1) * LH) / 2 + 5, change)}${badgeSvg(change, x + w - 2, y + 2)}</g>`;
 }
 
-/** Longest-path ranks after DFS back-edge reversal; cycles and self-links remain visible. */
 function ranksFor(nodes: readonly FlowNode[], edges: readonly FlowEdge[]): Map<string, number> {
 	const outgoing = new Map(nodes.map((n) => [n.id, [] as string[]]));
 	for (const edge of edges) outgoing.get(edge.from)!.push(edge.to);
@@ -432,7 +430,6 @@ function ranksFor(nodes: readonly FlowNode[], edges: readonly FlowEdge[]): Map<s
 	}
 	order.reverse();
 	const index = new Map(order.map((id, i) => [id, i]));
-	// Each edge points forward in `order` (back edges reversed); ranks relax along that order.
 	const forward = new Map<string, string[]>(nodes.map((n) => [n.id, []]));
 	for (const edge of edges) {
 		if (edge.from === edge.to) continue;
@@ -450,16 +447,11 @@ function overlap(a: Box, b: Box): boolean {
 const OPEN: Readonly<Record<Shape, string>> = { rect: "[", round: "(", diamond: "{", cylinder: "[(" };
 const CLOSE: Readonly<Record<Shape, string>> = { rect: "]", round: ")", diamond: "}", cylinder: ")]" };
 
-/** A node as written: a bare name when that parses back to the same node, else its shape's brackets. */
 function nodeToken(node: { readonly id: string; readonly shape: Shape; readonly highlighted: boolean }): string {
 	const bare = node.shape === "rect" && !/->|&|[:：[\](){}*]/.test(node.id);
 	return `${node.highlighted ? "*" : ""}${bare ? node.id : `${OPEN[node.shape]}${node.id}${CLOSE[node.shape]}`}`;
 }
 
-/**
- * A flow that is one path (each node at most one edge in and out, no groups or change markers), with
- * the operations that rewrite its fence body. Null for any other flow.
- */
 function chainOf(spec: FlowSpec, slots: RenderContext["slots"]): FlowChain | null {
 	if (spec.marked || spec.groups.length || !spec.nodes.length || spec.edges.length !== spec.nodes.length - 1) return null;
 	const incoming = new Map<string, FlowEdge>();
@@ -484,7 +476,6 @@ function chainOf(spec: FlowSpec, slots: RenderContext["slots"]): FlowChain | nul
 		let line = nodeToken(nodes[0]!);
 		links.forEach((link, index) => {
 			line += ` ${link.dashed ? "-->" : "->"} ${nodeToken(nodes[index + 1]!)}`;
-			// An edge label is written after the line's last step, so a labeled edge ends its line.
 			if (link.label) {
 				lines.push(`${line}: ${link.label}`);
 				line = index + 1 < links.length ? nodeToken(nodes[index + 1]!) : "";
@@ -516,14 +507,12 @@ function chainOf(spec: FlowSpec, slots: RenderContext["slots"]): FlowChain | nul
 			const next = [...nodes];
 			next.splice(index + 1, 0, { id: name, shape: "rect", highlighted: false });
 			const nextLinks = [...links];
-			// The new node takes the plain edge from its predecessor; the old edge now leaves the new node.
 			nextLinks.splice(index, 0, { dashed: false, label: "" });
 			return write(next, nextLinks);
 		},
 		remove(index) {
 			if (nodes.length <= 2) return null;
 			const nextLinks = [...links];
-			// The edge into the removed node is kept and now reaches its successor.
 			nextLinks.splice(index === 0 ? 0 : index === nodes.length - 1 ? index - 1 : index, 1);
 			return write(
 				nodes.filter((_, other) => other !== index),
@@ -557,7 +546,6 @@ function renderFlowSvg(spec: FlowSpec, ctx: RenderContext): TspNode[] {
 		rows[rank] = row;
 		row.push(node.id);
 	}
-	// Alternating barycenters put related nodes near each other and reduce crossings.
 	for (let pass = 0; pass < 6; pass++) {
 		const positions = new Map<string, number>();
 		for (const row of rows)
@@ -571,7 +559,6 @@ function renderFlowSvg(spec: FlowSpec, ctx: RenderContext): TspNode[] {
 				return adjacent.length ? adjacent.reduce((sum, other) => sum + positions.get(other)!, 0) / adjacent.length : positions.get(id)!;
 			};
 			row.sort((a, b) => score(a) - score(b));
-			// Keep a group's same-rank members contiguous after ordering.
 			for (const group of groups) {
 				const members = row.filter((id) => group.members.includes(id));
 				if (members.length < 2) continue;
@@ -693,15 +680,12 @@ function renderFlowSvg(spec: FlowSpec, ctx: RenderContext): TspNode[] {
 			points = vertical
 				? [start, { x: start.x, y: middle }, { x: end.x, y: middle }, end]
 				: [start, { x: middle, y: start.y }, { x: middle, y: end.y }, end];
-			// A label may be wider than its gap. Route that edge outside instead.
 			if (label && occupied.some((box) => overlap(label!, box))) points = [];
 		} else points = [];
 		if (!points.length) {
 			const lane = outer + (size ? (vertical ? size.w : size.h) / 2 : 0);
 			const start = vertical ? { x: a.x + a.w / 2, y: a.y + (reverse ? 0 : a.h) } : { x: a.x + (reverse ? 0 : a.w), y: a.y + a.h / 2 };
 			const end = vertical ? { x: b.x + b.w / 2, y: b.y + (reverse ? b.h : 0) } : { x: b.x + (reverse ? b.w : 0), y: b.y + b.h / 2 };
-			// Leave/enter through clear inter-rank channels, never through another
-			// node in the source/target rank (including disconnected nodes).
 			const sourceChannel = (reverse ? rankBounds[a.rank]!.min : rankBounds[a.rank]!.max) + direction * 20;
 			const targetChannel = (reverse ? rankBounds[b.rank]!.max : rankBounds[b.rank]!.min) - direction * 20;
 			points = vertical

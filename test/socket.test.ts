@@ -19,7 +19,6 @@ function tempPath(): string {
 	return ipcEndpoint(dir, "service");
 }
 
-/** A client that writes K1 lines and hands back reply frames in arrival order. */
 async function client(
 	endpoint: string,
 ): Promise<{ send(text: string): void; close(): void; closed: Promise<void>; next(): Promise<unknown> }> {
@@ -59,7 +58,6 @@ async function client(
 	};
 }
 
-/** A server whose endpoint some live process already listens on, then dies without cleaning it up. */
 async function residualEndpoint(): Promise<string> {
 	const endpoint = tempPath();
 	const child = Bun.spawn(
@@ -343,7 +341,6 @@ describe("serveK1 over the host IPC endpoint", () => {
 	test("shutdown closes every connection and unlinks the socket", async () => {
 		const path = tempPath();
 		const closed: number[] = [];
-		// Each connection reaches the handler on its own schedule, after the client's connect returns.
 		const opened = Promise.withResolvers<void>();
 		let openedCount = 0;
 		const server = await start(
@@ -362,7 +359,6 @@ describe("serveK1 over the host IPC endpoint", () => {
 		await Promise.all([a.closed, b.closed]);
 		expect(closed).toHaveLength(2);
 		expect(new Set(closed).size).toBe(2);
-		// The endpoint file is the host's to create and to remove.
 		if (POSIX) expect(existsSync(path)).toBe(false);
 	});
 

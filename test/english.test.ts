@@ -9,8 +9,6 @@ import type { TspNode } from "../src/service/tsp-types";
 import { design, registerCoreCleanup, task, template } from "./core-fixture";
 import { fixture, settle } from "./ui-fixture";
 
-// The suite runs in Chinese (test/language-preload.ts); this file's checks run in an English
-// process of their own, started by the last test below.
 const HAN = /\p{Script=Han}/u;
 function texts(nodes: readonly TspNode[]): string[] {
 	return nodes.flatMap((node) => {

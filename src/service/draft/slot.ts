@@ -1,18 +1,3 @@
-// Slots: a value the person picks, declared once in a ```slot <name> fence and written `{{name}}`
-// where it goes (prose, list items, kv values, flow node labels) in the same text, or `{{bN.name}}`
-// in any block for slot `name` of block bN. The pane draws each use as its current value; compiling
-// replaces it with that value and drops the declaration.
-//
-// ```slot 通知目标
-// = SMTP 邮箱
-// * SMTP 邮箱 | 你在 GUI 填 SMTP 服务器与凭据
-// - Webhook | 发到已有的 HTTP 接收端
-// ~ Telegram bot | 需要 bot token 与 chat id
-// ```
-//
-// `=` is the current value, `*` the recommended option, `-` another option and `~` an option offered
-// earlier (a value someone picked or wrote before).
-
 import { tr } from "../../../omomp-shared/i18n";
 import { type BlockContent, type BlockId, parseBlockId } from "../../domain/model";
 import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed } from "./contract";
@@ -28,18 +13,13 @@ export interface SlotDecl {
 	readonly name: string;
 	readonly value: string;
 	readonly options: readonly SlotOption[];
-	/** 1-based line of the fence body. */
 	readonly line: number;
 }
 
-/** `{{name}}` where a slot's value goes. */
 const USE = /\{\{([^{}\n]+?)\}\}/g;
-/** `bN.name`: slot `name` declared in block `bN`. */
 const QUALIFIED = /^(b[^.\s]*)\.(.+)$/;
-/** Fences whose text draws slots, so a `{{bN.name}}` there takes a value. */
 const SLOT_FENCES: Readonly<Record<string, true>> = { kv: true, flow: true };
 
-/** Where a block declares a slot that other blocks reach as `{{bN.name}}`, and the text it is declared in. */
 export interface SlotEntry {
 	readonly block: BlockId;
 	readonly field: "body" | "requirement" | "design";
@@ -48,7 +28,6 @@ export interface SlotEntry {
 }
 export type SlotTable = ReadonlyMap<string, SlotEntry>;
 
-/** What a text's diagnostics may know of the document: every block's slots, which blocks exist, and the text's own place. */
 export interface SlotScope {
 	readonly table: SlotTable;
 	readonly blocks: ReadonlySet<BlockId>;
@@ -121,7 +100,6 @@ export function parseSlot(input: FenceInput): Parsed<SlotDecl> {
 			diagnostics.push(diagnostic("slot", line, tr("An option needs a name: write - name | note", "选项需要名称：写成 - 名称 | 说明")));
 			return;
 		}
-		// A repeated option adds nothing: the first one stays, and the slot still works.
 		if (options.some((option) => option.label === label)) {
 			diagnostics.push(
 				diagnostic(
@@ -143,7 +121,6 @@ export function parseSlot(input: FenceInput): Parsed<SlotDecl> {
 	return { ok: true, value: { name, value, options, line: input.line }, diagnostics };
 }
 
-/** The slots `text` declares, by name; a name declared twice keeps its first declaration and is a diagnostic. */
 export function parseSlots(
 	text: string,
 	scope?: SlotScope,
@@ -166,7 +143,6 @@ export function parseSlots(
 			continue;
 		}
 		slots.set(parsed.value.name, parsed.value);
-		// A design's requirement and design are two texts of one block: `{{bN.name}}` reaches the requirement's.
 		const self = scope?.self;
 		const owner = self ? scope.table.get(`${self.block}.${parsed.value.name}`) : undefined;
 		if (self && owner && owner.field !== self.field)
@@ -187,7 +163,6 @@ export function parseSlots(
 		const name = match[1]!.trim();
 		const target = qualifiedName(name);
 		if (target !== null) {
-			// Without the document's slots (a check of one text alone) the compiler is the one to report it.
 			if (!scope || !qualified.has(match.index) || scope.table.has(name)) continue;
 			const reason = scope.blocks.has(target.block)
 				? tr(`${target.block} declares no slot ${target.slot}`, `${target.block} 没有声明槽位 ${target.slot}`)
@@ -202,7 +177,6 @@ export function parseSlots(
 			);
 			continue;
 		}
-		// `{{…}}` in code is the code's own syntax (a Go or Docker template), not a slot left undeclared.
 		if (slots.has(name) || inside(code, match.index)) continue;
 		diagnostics.push(
 			diagnostic(
@@ -216,14 +190,12 @@ export function parseSlots(
 	return { slots, diagnostics };
 }
 
-/** The `bN.name` of a slot of another block, or null for a slot of the text itself. */
 export function qualifiedName(name: string): { readonly block: BlockId; readonly slot: string } | null {
 	const match = QUALIFIED.exec(name);
 	const block = match ? parseBlockId(match[1]!) : null;
 	return block && match ? { block, slot: match[2]!.trim() } : null;
 }
 
-/** Inline code spans of `text`, and with `fenced` its fences other than those that draw slots. */
 function codeSpans(text: string, fenced: boolean): { start: number; end: number }[] {
 	const spans = [...text.matchAll(/`[^`\n]+`/g)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
 	if (fenced) for (const fence of fences(text)) if (SLOT_FENCES[fence.name] !== true) spans.push(fence.span);
@@ -234,10 +206,6 @@ function inside(spans: readonly { start: number; end: number }[], index: number)
 	return spans.some((span) => index >= span.start && index < span.end);
 }
 
-/**
- * The `{{bN.name}}` uses of `text` that take another block's value: outside inline code and outside
- * fences that do not draw slots. Drawing, diagnostics, compiling and dependencies all read these.
- */
 export function qualifiedUses(text: string): { readonly index: number; readonly block: BlockId; readonly slot: string }[] {
 	const code = codeSpans(text, true);
 	return [...text.matchAll(USE)].flatMap((match) => {
@@ -246,7 +214,6 @@ export function qualifiedUses(text: string): { readonly index: number; readonly 
 	});
 }
 
-/** The texts of a block that may declare and use slots, in the order a `{{bN.name}}` searches them. */
 export function slotTexts(content: BlockContent): readonly { readonly field: SlotEntry["field"]; readonly text: string }[] {
 	return content.kind === "task"
 		? [{ field: "body", text: content.body }]
@@ -256,7 +223,6 @@ export function slotTexts(content: BlockContent): readonly { readonly field: Slo
 			];
 }
 
-/** Every block's slots, keyed `bN.name`; a design's requirement is read before its design. */
 export function slotTable(blocks: Iterable<readonly [BlockId, BlockContent]>): SlotTable {
 	const table = new Map<string, SlotEntry>();
 	for (const [block, content] of blocks) {
@@ -270,7 +236,6 @@ export function slotTable(blocks: Iterable<readonly [BlockId, BlockContent]>): S
 	return table;
 }
 
-/** The pieces of `text` around the `{{name}}` uses of `slots`; a `{{bN.name}}` in inline code stays text. */
 export function slotParts(
 	text: string,
 	slots: ReadonlyMap<string, SlotDecl>,
@@ -289,18 +254,12 @@ export function slotParts(
 	return parts;
 }
 
-/**
- * `text` as an agent reads it: slot declarations dropped, every `{{name}}` of a slot declared in it
- * and every `{{bN.name}}` of `table` replaced by its value, in one pass (a value is never resolved
- * again). A `{{bN.name}}` the table lacks is an error; one in code stays as written.
- */
 export function resolveSlots(text: string, table: SlotTable): SlotResolution {
 	const declared = fences(text).filter((fence) => fence.name === "slot");
 	const { slots } = parseSlots(text);
 	const qualified = new Set(qualifiedUses(text).map((use) => use.index));
 	const edits: { start: number; end: number; text: string }[] = declared.map((fence) => ({
 		start: fence.span.start,
-		// The fence goes with its line break, so no empty line is left in its place.
 		end: text[fence.span.end] === "\n" ? fence.span.end + 1 : fence.span.end,
 		text: "",
 	}));
@@ -327,10 +286,6 @@ export function resolveSlots(text: string, table: SlotTable): SlotResolution {
 	return { ok: true, text: resolved + text.slice(offset) };
 }
 
-/**
- * `text` with slot `name` set to `value`. A value that is none of the slot's options is kept as an
- * option offered earlier, so it can be picked again. Null when no slot `name` is declared.
- */
 export function setSlotValue(text: string, name: string, value: string): string | null {
 	const fence = fences(text).find((candidate) => candidate.name === "slot" && candidate.input.args.trim() === name);
 	if (!fence || value.includes("\n")) return null;
@@ -343,6 +298,5 @@ export function setSlotValue(text: string, name: string, value: string): string 
 	if (!known && !value.includes("|") && value.trim()) lines.push(tr(`~ ${value} | Custom`, `~ ${value} | 自定义`));
 	const body = lines.join("\n");
 	const { start, end } = fence.input.body;
-	// An empty body has no line to replace: the new lines go in with their own line break.
 	return start === end ? `${text.slice(0, start)}${body}\n${text.slice(end)}` : text.slice(0, start) + body + text.slice(end);
 }

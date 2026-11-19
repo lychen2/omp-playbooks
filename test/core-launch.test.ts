@@ -105,9 +105,6 @@ async function fixture(blocks: readonly Block[] = [block("b1", "Task:\n((b2))"),
 	};
 }
 
-// Integration exception: Core owns real timers and exposes no fake-timer seam.
-// These tests intentionally exercise the platform's 2 s debounce and full no-event window.
-// Positive assertions wait for the observable event with a bounded deadline.
 const debounce = () => Bun.sleep(2_150);
 async function awaitChanges(changed: () => readonly ChangedEvent[], count: number, timeout = 3_000) {
 	const deadline = Date.now() + timeout;
@@ -132,7 +129,6 @@ function error(outcome: Outcome<unknown>, code: ErrorCode) {
 	return outcome.error;
 }
 
-// launch-events.md §1–§4; references.md §4–§5.
 describe("Core Launch integration", () => {
 	test("invalid roots and compile errors never create a Launch", async () => {
 		const f = await fixture([block("b1", "plain"), block("b2", "```js\nconsole.log(1);\n```"), block("b3", "((b99))")]);
@@ -347,7 +343,6 @@ describe("Core Launch integration", () => {
 		await debounce();
 		expect(f.changed()).toHaveLength(1);
 		expect((f.store.readLog(f.ref).launches.get(launch) ?? null)!.notified).toBeNull();
-		// A newly edited value has not yet reached its 2 s deadline; hello overrides it.
 		f.edit("b2", "just before reconnect");
 		await f.connect();
 		const second = await awaitChanges(f.changed, 2, 500);
@@ -362,7 +357,6 @@ describe("Core Launch integration", () => {
 	}, 10_000);
 });
 
-// C2 / C3-Core of #9: launch defaults, closed-Launch guards, and race-free rebase.
 describe("Launch execution contract and lifecycle guards", () => {
 	const configured = (id: BlockId, body: string, agent?: string, isolated?: boolean): Block => ({
 		id,
@@ -445,7 +439,6 @@ describe("Launch execution contract and lifecycle guards", () => {
 		const f = await fixture(undefined, gated);
 		const launch = await f.launch();
 		f.edit("b2", "uses ((file:new.txt))");
-		// The rebase request runs until it awaits the gated fetch, so this edit lands mid-rebase.
 		const rebased = f.send({ op: "rebase", args: { launch } });
 		f.edit("b2", "later ((file:new.txt))");
 		const lateSeq = (f.store.readLog(f.ref).launches.get(launch) ?? null)!.dirty.find(([id]) => id === "b2")![1];
@@ -478,7 +471,6 @@ describe("Launch execution contract and lifecycle guards", () => {
 		};
 		const f = await fixture(undefined, gated);
 		const launch = await f.launch();
-		// The document's own check pass starts this fetch; the judgment waits for the same in-flight fetch.
 		f.edit("b2", "first ((file:new.txt))");
 		await debounce();
 		expect(f.changed()).toEqual([]);

@@ -308,8 +308,6 @@ describe("Run creation and independent copies (runs.md §§1–2)", () => {
 });
 
 describe("Status updates and snooze (runs.md §6)", () => {
-	// These integration cases exercise Core's platform timer; `now` controls metadata only.
-	// Await the connection's actual event rather than guessing how long scheduling takes.
 	test("a due sends its exact event once, stays overdue and can be rescheduled", async () => {
 		const f = fixture();
 		await f.connect();
@@ -458,7 +456,6 @@ describe("Finished Runs leave memory and are read back per request (#26 §2)", (
 		const fresh = f.newCore();
 		await f.connect(fresh, "session-two");
 		expect(await Promise.all(questions.map((question) => f.request(question, fresh)))).toEqual(answers);
-		// The answers are the files: the timeline is the log, the document is the Run file.
 		expect(expectOk(answers[0]!)).toEqual({ entries: f.store.readLog(runRef).entries });
 		expect(expectOk(answers[2]!)).toMatchObject({ title: designTemplate.title, run: f.persisted().run });
 		expect(f.persisted().doc.blocks[0]!.content).toEqual({ kind: "task", body: "Edited in the Run" });
@@ -541,7 +538,6 @@ describe("Finished Runs leave memory and are read back per request (#26 §2)", (
 		expect(unchanged.text).toContain("External instruction");
 		expect(f.fetchCount()).toBe(1);
 
-		// A later Run finishing evicts again: r1's retained targets must survive that cleanup too.
 		expectOk(await f.request({ op: "finish_run", args: { run: "r2" } }));
 		const afterSecondFinish = expectOk(await f.request({ op: "compile", args: { run: "r1", blocks: [inserted.block] } })) as CompileResult;
 		if (afterSecondFinish.kind !== "Ok") throw new Error("finished Run recompiled after another Run was evicted");
@@ -571,7 +567,6 @@ describe("Finished Runs leave memory and are read back per request (#26 §2)", (
 		) as { readonly block: BlockId };
 		expectOk(await f.request({ op: "finish_run", args: { run: "r1" } }));
 
-		// A new Core on the same store is a restart: it starts with an empty fetch table.
 		const restarted = f.newCore();
 		await f.connect(restarted, "session-two");
 		const baseline = f.fetchCount();

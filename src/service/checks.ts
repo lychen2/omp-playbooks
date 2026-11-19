@@ -75,7 +75,6 @@ export const checks: ChecksModule = {
 			render_error: render.blockError || render.documentError,
 			render_pending: render.pendingOverdue,
 		};
-		// Task bodies and designs are drawn by the same component renderer, so both are checked for its syntax.
 		const text = content.kind === "task" ? content.body : content.design;
 		const outlined = outlinedText(content);
 		return {
@@ -86,9 +85,6 @@ export const checks: ChecksModule = {
 		};
 	},
 	version({ closure, results, compiled }) {
-		// Preserve meaningful occurrence/path order, but not Map insertion order
-		// or the order of the referenced results. Tuples fix field ordering and
-		// distinguish a missing block (null) from a present, empty block ("").
 		const normalized = [
 			[...closure].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
 			results.map((result) => JSON.stringify([result.text, result.at, result.seq, result.origin, result.launch])).sort(),

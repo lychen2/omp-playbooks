@@ -212,8 +212,6 @@ interface Box {
 	readonly notes: readonly (readonly Span[])[];
 }
 
-// The shared wrapper keeps ordinary words together. Hard-wrap any remaining long
-// token (a path, URL or identifier) before mapping its text back to Markdown spans.
 function wrappedSpans(text: string, maxWidth: number, fontSize: number): Span[][] {
 	const spans = inlineSpans(text);
 	const plain = spans.map((span) => span.t).join("");
@@ -259,7 +257,6 @@ function spansSvg(spans: readonly Span[], x: number, y: number, fontSize: number
 	return spans
 		.map((span) => {
 			const tokens = span.s?.split(" ") ?? [];
-			// A box-level attribute (highlight weight, removed strike-through) wins over the run's own.
 			const style = [
 				tokens.includes("strong") ? 'font-weight="700"' : "",
 				tokens.includes("em") ? 'font-style="italic"' : "",

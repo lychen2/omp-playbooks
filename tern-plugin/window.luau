@@ -1,20 +1,8 @@
 --!strict
--- Tern-side entry for omp-playbooks (design/README.md S14, contracts.md K6).
--- It shows a Playbook's document service, starting the service beside the focused pane
--- when none runs. It never starts omp or any agent: the coordinator is the omp main
--- session that calls the `playbook_*` tools.
 
--- The omp plugin `omp-playbooks` links this directory into Tern when it is installed, so the
--- document service entry sits next to it in the same omp plugin package.
 local MAIN = tern.plugin.dir .. "/../src/service/main.ts"
--- The plugin directory is absolute, so it is a POSIX path exactly when it starts with `/`.
--- Windows has no login shell and its programs inherit the user's PATH, so `bun` starts as
--- itself there; the argv below never passes through a pane shell on any platform.
 local WINDOWS = string.sub(tern.plugin.dir, 1, 1) ~= "/"
 
--- The language rule of src/i18n.ts, read from the Tern app's environment: OMOMP_LANG
--- when it is en or zh, else the first non-empty of LC_ALL, LC_MESSAGES and LANG (Chinese when
--- it starts with zh), else English.
 local function chinese(): boolean
 	local explicit = tern.getenv("OMOMP_LANG")
 	if explicit ~= nil then
@@ -40,8 +28,7 @@ local function quote(text: string): string
 	return "'" .. (string.gsub(text, "'", "'\\''")) .. "'"
 end
 
--- `main.ts --open <path> <pane>`: it shows the running service's pane, or starts the service
--- in a new pane beside <pane>. Tern windows started from the GUI may not have the user's PATH,
+-- Tern windows started from the GUI may not have the user's PATH,
 -- so `bun` resolves through the login shell elsewhere, as pane launches do.
 local function open_command(path: string, pane: string): { string }
 	if WINDOWS then
@@ -59,7 +46,7 @@ local function show(path: string, pane: string)
 	end)
 end
 
--- The focused file pane's YAML path, or nil. `available` runs under the palette's 4 ms
+-- `available` runs under the palette's 4 ms
 -- budget, so this stays to table lookups and never reads the file.
 local function focused_yaml(cx): string?
 	local id = cx.session:focused()

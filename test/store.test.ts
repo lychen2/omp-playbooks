@@ -530,12 +530,10 @@ describe("append-only facts", () => {
 			.map((line) => JSON.parse(line));
 		expect(lines[1]).toEqual({ launch_update: { id: "l1", agents: ["agent-1"] } });
 		expect(lines[5]).toEqual({ launch_update: { id: "l1", notified: null, closed: { at: 15, by: "run_finished" } } });
-		// The same history as whole lines, the format before launch_update existed, replays to the same record.
 		const whole = createStore(join(directory, "whole.yaml"));
 		for (const step of steps) whole.appendLaunch(ref, step);
 		expect(store.readLog(ref).launches.get("l1")).toEqual(steps.at(-1)!);
 		expect(store.readLog(ref)).toEqual(whole.readLog(ref));
-		// Mixed: a whole line after updates still wins, and updates continue from it.
 		store.appendLaunch(ref, { ...launch, agents: ["fresh"] });
 		store.appendLaunchUpdate(ref, launch.id, { dirty: [["b1", 9]] });
 		expect(store.readLog(ref).launches.get("l1")).toEqual({ ...launch, agents: ["fresh"], dirty: [["b1", 9]] });
@@ -543,7 +541,6 @@ describe("append-only facts", () => {
 	test("log lines are read across chunk boundaries, including a multi-byte character split between chunks", () => {
 		const { directory, store } = fixture();
 		const ref: DocRef = { kind: "run", run: "r1" };
-		// 64 KiB chunks: a ~150 KiB entry spans three, and the 4-byte emoji lands on the boundaries at varying offsets.
 		const entries: TimelineEntry[] = Array.from({ length: 6 }, (_, index) => ({
 			seq: index + 1,
 			at: index,

@@ -3,7 +3,6 @@ import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed, type Re
 import { escapeXml, textWidth, wrapText } from "./text";
 
 interface Annotation {
-	/** UTF-16 offsets in the sentence's plain text. */
 	readonly start: number;
 	readonly end: number;
 	readonly note: string;
@@ -48,7 +47,6 @@ function parseSentence(source: string, line: number, diagnostics: DraftDiagnosti
 			);
 			break;
 		}
-		// Brackets in ordinary prose are not an annotation until followed by a brace.
 		if (source[close + 1] !== "{") {
 			text += source.slice(open, close + 1);
 			cursor = close + 1;
@@ -132,7 +130,6 @@ const CONTENT = WIDTH - PAD * 2;
 const SENTENCE_SIZE = 16;
 const NOTE_SIZE = 12;
 
-/** Use shared word/CJK wrapping, splitting only a single token that exceeds the canvas. */
 function fitLines(text: string, width: number, size: number): string[] {
 	const result: string[] = [];
 	for (const line of wrapText(text, width, size)) {
@@ -179,8 +176,6 @@ function renderSentence(sentence: AnnotSentence, top: number): { readonly svg: s
 	let y = top;
 	let offset = 0;
 	for (const rowText of fitLines(sentence.text, CONTENT, SENTENCE_SIZE)) {
-		// wrapText removes whitespace at row boundaries, except leading whitespace
-		// retained in the first row. Preserve that prefix when advancing source offsets.
 		const sourceWhitespace = /^\s*/u.exec(sentence.text.slice(offset))![0].length;
 		const rowWhitespace = /^\s*/u.exec(rowText)![0].length;
 		offset += Math.max(0, sourceWhitespace - rowWhitespace);
@@ -200,7 +195,6 @@ function renderSentence(sentence: AnnotSentence, top: number): { readonly svg: s
 			output.push(
 				`<path d="M ${x1} ${bracketY - 4} V ${bracketY} H ${x2} V ${bracketY - 4}" fill="none" stroke="var(--${annotation.tone})" stroke-width="1.5"/>`,
 			);
-			// A wrapped annotation retains brackets on each row and owns just one note.
 			if (!annotation.note || (annotation.end > end && sentence.text.slice(end, annotation.end).trim())) continue;
 			const lines = fitLines(annotation.note, Math.min(380, CONTENT), NOTE_SIZE);
 			const width = Math.max(...lines.map((line) => textWidth(line, NOTE_SIZE)));

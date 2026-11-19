@@ -147,7 +147,6 @@ describe("timeline rendering", () => {
 		const labelWidth = cellWidth - 20;
 		expect(svg.size.w).toBeLessThanOrEqual(1000);
 		const textNodes = [...svg.source.matchAll(/<text x="([^"]+)" y="([^"]+)"[^>]*font-size="([^"]+)"[^>]*>(.*?)<\/text>/g)];
-		// Each wrapped line is its own <text> (Tern draws no <tspan>); lines of one item share its x.
 		expect(svg.source).not.toContain("<tspan");
 		for (const text of textNodes) {
 			const fontSize = Number(text[3]);

@@ -1,7 +1,3 @@
-// Document-level parser of a design draft (answer-me-with-html draft format, `am help format`):
-// frontmatter, lead, `## ` panels and the segments inside them. Component fences are only
-// located here; src/service/draft/components.ts parses and draws them. Every segment keeps the
-// UTF-16 range it came from, so the pane can edit the text it draws in place.
 import { tr } from "../../../omomp-shared/i18n";
 import { type DraftDiagnostic, diagnostic, type FenceInput, type SourceLine, type Span } from "./contract";
 
@@ -9,35 +5,26 @@ export interface DraftMeta {
 	readonly template: "sheet" | "doc";
 	readonly title: string | null;
 	readonly subtitle: string | null;
-	/** Most panels in a sheet row. */
 	readonly cols: number;
-	/** Other frontmatter keys, shown in the header's meta line. */
 	readonly extra: readonly { readonly key: string; readonly value: string }[];
 }
 
 export type Segment =
 	| { readonly kind: "markdown"; readonly text: string; readonly line: number; readonly lines: readonly SourceLine[]; readonly span: Span }
-	/** A fenced block; `name` is the fence language (a component name, a code language, or empty). */
 	| { readonly kind: "fence"; readonly name: string; readonly input: FenceInput; readonly line: number; readonly span: Span }
-	/** A GFM table block (header, delimiter and body rows). */
 	| { readonly kind: "table"; readonly input: FenceInput; readonly span: Span }
-	/** An image on its own line: `![alt](path)`. */
 	| { readonly kind: "image"; readonly input: FenceInput; readonly span: Span };
 
 export interface Panel {
-	/** Letter ID: written in the heading (`explicit`) or assigned in order. */
 	readonly id: string;
 	readonly explicit: boolean;
 	readonly title: string;
-	/** Where the title is written in the heading line. */
 	readonly titleSpan: Span;
 	readonly span: number | null;
 	readonly rows: number | null;
 	readonly bare: boolean;
 	readonly meta: string | null;
-	/** 1-based line of the `## ` heading. */
 	readonly line: number;
-	/** UTF-16 range of the panel in the draft text, from its heading to the next panel or the end. */
 	readonly start: number;
 	readonly end: number;
 	readonly segments: readonly Segment[];
@@ -47,14 +34,11 @@ export interface DraftDocument {
 	readonly meta: DraftMeta;
 	readonly lead: readonly Segment[];
 	readonly panels: readonly Panel[];
-	/** Document-level findings (frontmatter, headings, fences); component findings come from components.ts. */
 	readonly diagnostics: readonly DraftDiagnostic[];
 }
 
 interface Line extends SourceLine {
-	/** 1-based line number. */
 	readonly number: number;
-	/** Inside a fenced block (fence delimiter lines included). */
 	readonly fenced: boolean;
 }
 
@@ -91,13 +75,11 @@ function splitLines(text: string): Line[] {
 	return lines;
 }
 
-/** The range of `lines`, from the first line's start to the last line's end (its newline excluded). */
 function spanOf(lines: readonly SourceLine[]): Span {
 	const last = lines.at(-1)!;
 	return { start: lines[0]!.offset, end: last.offset + last.text.length };
 }
 
-/** Segments of consecutive lines (a panel body or the lead). */
 function segmentsOf(lines: readonly Line[], diagnostics: DraftDiagnostic[]): Segment[] {
 	const segments: Segment[] = [];
 	let markdown: Line[] = [];
@@ -349,7 +331,6 @@ export function parseDocument(text: string): DraftDocument {
 		const end = headings[index + 1];
 		const body = rest.slice(at + 1, end ?? rest.length);
 		const title = match[2] ?? "";
-		// The title sits after `## `, the optional letter ID and the spaces after it.
 		const titleAt = line.text.indexOf(title, 3 + (id === null ? 0 : 1));
 		const titleStart = line.offset + (title ? titleAt : line.text.length);
 		return {
@@ -389,7 +370,6 @@ export function parseDocument(text: string): DraftDocument {
 	return { meta, lead, panels, diagnostics };
 }
 
-/** Every fenced block of a text, lead and panels alike, in order. */
 export function fences(text: string): Extract<Segment, { kind: "fence" }>[] {
 	const document = parseDocument(text);
 	return [...document.lead, ...document.panels.flatMap((panel) => panel.segments)].flatMap((segment) =>
@@ -397,7 +377,6 @@ export function fences(text: string): Extract<Segment, { kind: "fence" }>[] {
 	);
 }
 
-/** Text of the panel whose heading writes `id`; panels with assigned IDs cannot be addressed. */
 export function panelText(
 	text: string,
 	id: string,
@@ -414,10 +393,6 @@ export function panelText(
 	return { ok: true, text: text.slice(panel.start, panel.end).replace(/\n+$/, "") };
 }
 
-/**
- * The draft with the panel whose heading writes `id` replaced by `replacement`, which must itself
- * be one panel whose heading writes the same ID.
- */
 export function replacePanel(
 	text: string,
 	id: string,

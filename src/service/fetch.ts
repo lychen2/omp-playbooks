@@ -37,7 +37,6 @@ function parseIssue(issueText: string, commentsText: string): IssueValue {
 		throw new Error(tr("Invalid GitHub JSON: issue must have title and body", "GitHub JSON 无效：issue 必须有 title 和 body"));
 	}
 	const title = stringField(issue.title, "title");
-	// GitHub represents an absent issue body as null, not an empty string.
 	const body = issue.body === null ? "" : stringField(issue.body, "body");
 	const pages: unknown = JSON.parse(commentsText);
 	if (!Array.isArray(pages))
@@ -88,7 +87,6 @@ export const fetcher: Fetcher = {
 					const endpoint = `repos/${target.owner}/${target.repo}/issues/${target.number}`;
 					const issue = await gh([endpoint]);
 					if (!issue.ok) return { ok: false, at: Date.now(), error: issue.error };
-					// --slurp gives one JSON value containing the ordered pagination arrays.
 					const comments = await gh(["--paginate", "--slurp", `${endpoint}/comments`]);
 					if (!comments.ok) return { ok: false, at: Date.now(), error: comments.error };
 					return { ok: true, at: Date.now(), value: { kind: "issue", issue: parseIssue(issue.text, comments.text) } };

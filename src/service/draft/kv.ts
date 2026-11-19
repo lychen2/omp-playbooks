@@ -9,7 +9,6 @@ export interface KvSpec {
 		readonly kind: "item" | "wide";
 		readonly key: string;
 		readonly value: string;
-		/** Where the key and the value are written. */
 		readonly keySpan: Span;
 		readonly valueSpan: Span;
 	}[];
@@ -18,7 +17,6 @@ export interface KvSpec {
 export function parseKv(input: FenceInput): Parsed<KvSpec> {
 	const diagnostics: DraftDiagnostic[] = [];
 	let cols = 2;
-	// Match am's attribute tokens, including quoted values and last-value wins.
 	let columnValue: string | undefined;
 	for (const match of input.args.matchAll(/([\w-]+)(?:=("[^"]*"|'[^']*'|\S+))?/g)) {
 		if (match[1] !== "cols") continue;
@@ -72,7 +70,6 @@ export function parseKv(input: FenceInput): Parsed<KvSpec> {
 }
 
 export function renderKv(spec: KvSpec, ctx: RenderContext): Rendered {
-	// A two-column grid: muted keys, values beside them; a `*` item spans the row with a stronger value.
 	const cells = spec.items.flatMap((item, index): TspNode[] => {
 		const id = `${ctx.id}.item.${index}`;
 		return [

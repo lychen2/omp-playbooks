@@ -41,15 +41,11 @@ const designBlock = {
 type Frame = Request & { readonly id: string };
 type Cleanup = () => void | Promise<void>;
 const cleanup: Cleanup[] = [];
-// The extension factory links the Tern plugin through `tern` once per process; point it at a
-// throwaway fake `tern` first on PATH for that call so the memoized state is `current` whether
-// a real Tern exists or not — a missing Tern would leave `absent` and add the warning notice.
 let ternConfig: string;
 beforeAll(async () => {
 	ternConfig = await mkdtemp("/tmp/pb-ext-tern-");
 	process.env.TERN_CONFIG_DIR = ternConfig;
 	process.env.TERN_DAEMON_SOCKET = `${ternConfig}/daemon.sock`;
-	// The fake answers the shared tern-plugin adapter's calls: dir/link/list/reload as `tern plugin <verb> --json`.
 	const plugins = `${ternConfig}/plugins`;
 	const manifest = await readPluginManifest(resolve(import.meta.dir, "../tern-plugin"), "omp-playbooks");
 	if (!manifest.ok) throw new Error(`tern-plugin manifest: ${JSON.stringify(manifest.error)}`);
@@ -77,7 +73,6 @@ esac
 	}
 });
 afterAll(() => rm(ternConfig, { recursive: true, force: true }));
-/** This test's Tern pane: numeric like the daemon's, unique so each session's pane endpoint is its own. */
 let pane: string;
 beforeEach(() => {
 	const original = { PATH: process.env.PATH, TERN_PANE: process.env.TERN_PANE };
@@ -102,7 +97,6 @@ async function temporaryDirectory(): Promise<string> {
 function respond(connection: IpcConnection, frame: Frame, result?: unknown): void {
 	connection.send(JSON.stringify({ id: frame.id, ok: true, result }));
 }
-/** A fake document service on the extension's real endpoint: it records requests and answers from `handler`. */
 async function service(pane: string | undefined = "document-pane", existingDoc?: string) {
 	const doc = existingDoc ?? `${await temporaryDirectory()}/book.yaml`;
 	if (!existingDoc) await Bun.write(doc, "title: Book\nblocks: []\n");
@@ -150,7 +144,6 @@ async function service(pane: string | undefined = "document-pane", existingDoc?:
 	}
 	async function disconnect(): Promise<void> {
 		const connection = connections.at(-1)!;
-		// Ending our half reaches the peer as EOF; its own close then ends ours, so this waits for it to land.
 		connection.end();
 		await closings.get(connection);
 	}
@@ -250,7 +243,6 @@ async function harness(kind: "main" | "sub" = "main") {
 		isIdle: () => idle,
 		ui,
 	} as unknown as ExtensionCommandContext;
-	// Only the host surfaces this extension consumes are supplied; production types remain unchanged.
 	const waiting: (() => void)[] = [];
 	const warnings: string[] = [];
 	const api = {
@@ -282,7 +274,6 @@ async function harness(kind: "main" | "sub" = "main") {
 		if (name === "session_start") started = true;
 		return handlers.get(name)?.(payload, ctx);
 	}
-	// omp fires session_start before the session can run tools or commands.
 	async function start(): Promise<void> {
 		if (!started) await event("session_start");
 	}
@@ -369,7 +360,6 @@ async function fakeTern(exit = 0, stdout = "") {
 	process.env.PATH = `${dir}:${process.env.PATH}`;
 	return { capture, args: async () => (await Bun.file(capture).text()).trim().split("\n") };
 }
-/** Resolves when the fake tern child has written its arguments: the split happened. */
 function fileAppears(path: string): Promise<void> {
 	const appeared = Promise.withResolvers<void>();
 	const watcher = watch(dirname(path), () => {
@@ -1015,8 +1005,6 @@ test("in-flight disconnect is Disconnected; automatic reconnect sends only hello
 	const reply = await c.request({ op: "post", args: { run: runId, kind: "update", text: "x" } });
 	expect(reply.ok).toBe(false);
 	if (!reply.ok) expect(reply.error.code).toBe("Disconnected");
-	// Exercise the real platform reconnect deadline and prove close cancels that deadline.
-	// Advancing fake timers does not reproduce IPC I/O across transport lifetimes.
 	await Bun.sleep(2150);
 	expect(s.frames.map((frame) => frame.op)).toEqual(["hello", "post", "hello"]);
 	c.close();
@@ -1161,11 +1149,9 @@ test("launch requests made during a turn wait for its end and arrive as one noti
 	await h.event("agent_start");
 	s.push({ event: "launch_requested", data: { blocks: ["b1"] } } as EventPayload);
 	s.push({ event: "launch_requested", data: { run: "r1", blocks: ["b2"] } } as EventPayload);
-	// A reply after both events on the same socket: the extension has handled them.
 	await h.execute("playbook_run", { doc: s.doc, op: "list" });
 	await h.event("agent_end", { messages: [], willContinue: true });
 	expect(h.messages).toHaveLength(0);
-	// The turn settles while the prompt is still unwinding: the notice queues behind it as a followUp.
 	h.idle = false;
 	await h.event("agent_end", { messages: [] });
 	expect(h.messages).toHaveLength(1);
@@ -1181,7 +1167,6 @@ test("launch requests made during a turn wait for its end and arrive as one noti
 		{ doc, event: "launch_requested", data: { blocks: ["b1"] } },
 		{ doc, event: "launch_requested", data: { run: "r1", blocks: ["b2"] } },
 	]);
-	// Idle again: the next click is delivered at once, alone.
 	h.idle = true;
 	const delivered = h.nextMessage();
 	s.push({ event: "launch_requested", data: { blocks: ["b2"] } } as EventPayload);

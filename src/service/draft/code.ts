@@ -16,7 +16,6 @@ export interface CodeSpec {
 	readonly title: string | null;
 	readonly source: CodeSource;
 	readonly highlights: readonly LineRange[];
-	/** Opening fence and first body line in the design draft, not in the quoted file. */
 	readonly fenceLine: number;
 	readonly bodyLine: number;
 }
@@ -43,7 +42,6 @@ const SECRET_DIR: Readonly<Record<string, true | undefined>> = {
 const SECRET_TEXT =
 	/sk-ant-|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[abeprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.|(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)["']?\s*[:=]\s*["'][^"'\s$<{]{12,}["']|\b(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)["']?\s*[:=]\s*[^"'\s]\S{7,}/i;
 
-/** Return the first credential match, preserving its source offset for diagnostics. */
 export function findSecret(text: string): RegExpExecArray | null {
 	return SECRET_TEXT.exec(text);
 }
@@ -53,7 +51,6 @@ function secretPath(path: string): boolean {
 	return SECRET_FILE.test(parts.at(-1) ?? "") || parts.some((part) => SECRET_DIR[part.toLowerCase()] === true);
 }
 
-/** Split whitespace-delimited attributes, retaining whitespace within quoted values. */
 function argumentsOf(args: string): readonly string[] | null {
 	const tokens: string[] = [];
 	let token = "";

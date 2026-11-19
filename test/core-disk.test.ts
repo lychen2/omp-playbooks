@@ -36,10 +36,6 @@ const designInitial: PlaybookDoc = {
 			: block,
 	),
 };
-// S2 specifies one-second polling/writeback. The extra 150 ms only allows
-// scheduling and observation overhead; it is not a second polling interval.
-// These integration tests exercise Core's actual platform-clock polling and
-// delayed atomic IO; fake timers would not prove the requested real 1 s path.
 const ONE_SECOND_WINDOW = 1_150;
 const resources: { core: Core; conn: Connection; directory: string }[] = [];
 
@@ -91,7 +87,6 @@ function fixture(doc: PlaybookDoc = initial) {
 		const view = core.view(ref);
 		return { title: view.title, blocks: view.blocks.map((value) => value.block) };
 	};
-	// Ensure an external write has a distinct mtime even on coarse filesystems.
 	let externalMtime = Date.now();
 	const externalText = (ref: DocRef, text: string) => {
 		const file = pathFor(ref);
@@ -213,7 +208,6 @@ describe("core disk persistence — README S2 / contracts K4", () => {
 					committedTitle,
 				),
 			).toBeNull();
-			// Switch content immediately, while disk still has the last-written title.
 			expect(f.store.readTemplate()).toEqual({ ok: true, doc: before, run: null });
 			f.externalDoc(template, after);
 			await eventually(() => f.block(template, "b2").block.content.kind === after.blocks[1]!.content.kind);
@@ -237,8 +231,6 @@ describe("core disk persistence — README S2 / contracts K4", () => {
 				"newly committed human body",
 			),
 		).toBeNull();
-		// The disk program changes only title. Its body is still the last-written
-		// body, so it is not a disk body edit under S2's comparison rule.
 		f.externalDoc(template, {
 			...initial,
 			blocks: initial.blocks.map((block) => (block.id === "b2" ? { ...block, title: "disk title only" } : block)),

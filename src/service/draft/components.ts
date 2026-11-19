@@ -1,7 +1,4 @@
 import { tr } from "../../../omomp-shared/i18n";
-// Component dispatch and whole-text rendering. Every fence name maps to exactly one module; any
-// other fence language is a code block (am: "Any other fence language is a code block"). Task
-// bodies and design drafts are drawn the same way; the host decides what a person may change.
 import type { TspNode } from "../tsp-types";
 import { parseAnnot, renderAnnot } from "./annot";
 import { parseCallout, renderCallout } from "./callout";
@@ -32,12 +29,9 @@ import { parseTable, renderTable } from "./table";
 import { parseTimeline, renderTimeline } from "./timeline";
 import { parseTree, renderTree } from "./tree";
 
-/** Largest component body drawn; longer ones are a diagnostic instead of a stalled pane. */
 const MAX_FENCE_LINES = 1000;
-/** Components that make their own parts editable; every other segment is edited as its whole source. */
 const SELF_EDITING: Readonly<Record<string, true>> = { flow: true, kv: true, callout: true, slot: true };
 
-/** One parsed segment, ready to draw. `marked` components offer the before/changes/after views. */
 interface Built {
 	readonly diagnostics: readonly DraftDiagnostic[];
 	readonly marked: boolean;
@@ -97,7 +91,6 @@ function fence(name: string, input: FenceInput, line: number): Built {
 			return built(name, line, parseKv(input), renderKv);
 		case "callout":
 			return built(name, line, parseCallout(input), renderCallout);
-		// A slot declaration draws nothing: its `{{name}}` uses show and switch its value.
 		case "slot":
 			return built(name, line, parseSlot(input), () => ({ nodes: [], diagnostics: [] }));
 		case "diff":
@@ -159,7 +152,6 @@ function lineOf(segment: Segment): number {
 	return segment.kind === "markdown" || segment.kind === "fence" ? segment.line : segment.input.line;
 }
 
-/** Every parse-time finding of a text (document syntax, each component, slot uses), by line. */
 export function draftDiagnostics(text: string): DraftDiagnostic[] {
 	const document = parseDocument(text);
 	const found = [...document.diagnostics, ...parseSlots(text).diagnostics];
@@ -168,30 +160,23 @@ export function draftDiagnostics(text: string): DraftDiagnostic[] {
 	return found.sort((a, b) => a.line - b.line);
 }
 
-/** What the UI supplies for drawing a text. */
 export interface DraftHost {
-	/** Prefix for every node id. */
 	readonly id: string;
 	readonly context: Pick<RenderContext, "svg" | "image" | "readFile">;
 	readonly edit: EditHost;
-	/** The document's slots, for `{{bN.name}}` uses and their diagnostics. */
 	readonly slots: SlotScope;
 	view(key: string): ChangeView;
-	/** A control switching the view of `key` (the UI owns the state and the event). */
 	viewSwitch(id: string, key: string, current: ChangeView): TspNode;
 }
 
 export interface DraftRender {
 	readonly nodes: readonly TspNode[];
-	/** Parse-time and render-time findings, by line. */
 	readonly diagnostics: readonly DraftDiagnostic[];
 }
 
-/** Draw a whole text: header, lead and panels, one column of headed sections. */
 export function renderDraft(text: string, host: DraftHost): DraftRender {
 	const document = parseDocument(text);
 	const { slots: local, diagnostics: slotDiagnostics } = parseSlots(text, host.slots);
-	// A text draws its own slots and, as `{{bN.name}}`, every block's.
 	const slots = new Map([...local, ...[...host.slots.table].map(([name, entry]) => [name, entry.decl] as const)]);
 	const diagnostics: DraftDiagnostic[] = [...document.diagnostics, ...slotDiagnostics];
 	const segmentNodes = (prefix: string, segments: readonly Segment[]): TspNode[] =>
@@ -199,14 +184,12 @@ export function renderDraft(text: string, host: DraftHost): DraftRender {
 			const item = build(segment);
 			diagnostics.push(...item.diagnostics);
 			const id = `${prefix}.${index}`;
-			// The view key follows the segment's line so it survives edits elsewhere in the text.
 			const key = `${lineOf(segment)}`;
 			const view = item.marked ? host.view(key) : "changes";
 			let rendered: Rendered;
 			try {
 				rendered = item.render({ ...host.context, id, view, slots, edit: host.edit });
 			} catch (error) {
-				// A renderer bug stays inside its component: the rest of the text still draws.
 				const message = error instanceof Error ? error.message : String(error);
 				rendered = {
 					nodes: [

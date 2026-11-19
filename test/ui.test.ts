@@ -7,7 +7,6 @@ import { pastedImagePaths } from "../src/service/ui";
 import { design, registerCoreCleanup, task, template } from "./core-fixture";
 import { fakeCoordinators, fixture, settle, type TestTsp } from "./ui-fixture";
 
-/** The editable node drawn for the field's text that starts with `text`. */
 function editableOf(tsp: TestTsp, prefix: string, text: string): TspNode {
 	return tsp.nodes().find((node) => node.id.startsWith(prefix) && node.p?.actions && JSON.stringify(node.c ?? []).includes(text))!;
 }
@@ -189,7 +188,6 @@ describe("current Playbook user interactions", () => {
 		expect(f.core.view(template).blocks[0]?.block.content).toMatchObject({ body: `Before\n\n![图片](${PNG_PATH})\n` });
 		expect(new Uint8Array(readFileSync(join(f.directory, PNG_PATH)))).toEqual(PNG);
 		expect(f.tsp.nodes().some((node) => node.k === "image")).toBe(true);
-		// A design card takes it in the person's requirement; the same image is the same file.
 		f.tsp.action("b2.fold");
 		f.tsp.keys("\x16");
 		await settle();
@@ -338,7 +336,6 @@ describe("redraws follow core changes (#26 §7)", () => {
 		await settle();
 		expect(f.tsp.frames.length - frames).toBe(1);
 		expect(views).toBe(1);
-		// Frame status reports use the blocks that frame drew, without another view.
 		f.tsp.statusListener(["b1", "b2"]);
 		expect(views).toBe(1);
 	});

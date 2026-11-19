@@ -1,5 +1,3 @@
-// Tern panes through the `tern` CLI: the daemon owns panes, their programs and the layout; this module
-// only asks it and reports its answer.
 import { dirname, resolve } from "node:path";
 import { ptree } from "@oh-my-pi/pi-utils";
 import { tr } from "../../omomp-shared/i18n";
@@ -8,7 +6,6 @@ import { withLanguage } from "../i18n";
 type TernResult = { ok: true; json: unknown } | { ok: false; error: string };
 type PaneResult = { ok: true; pane: string } | { ok: false; error: string };
 
-/** The daemon supplies this id to programs running in its panes. */
 export function ownPane(): string | null {
 	return process.env.TERN_PANE ?? null;
 }
@@ -47,18 +44,12 @@ function paneOf(result: TernResult): PaneResult {
 	return { ok: false, error: tr("tern returned an invalid pane ID", "tern 返回了无效的面板 ID") };
 }
 
-/** The daemon, not the caller, owns the new pane and its program (contracts.md K5). */
 export async function splitPane(pane: string, cwd: string, command: readonly string[]): Promise<PaneResult> {
 	return paneOf(await tern(["split", pane, "right", "--cwd", cwd, "--json", "--", ...command]));
 }
 
-/** This installation's document service entry, beside this module. */
 const SERVICE_ENTRY = resolve(import.meta.dir, "main.ts");
 
-/**
- * Start the document service for `doc` in a new pane right of `pane`: the one pane-opening path
- * of `playbook_open` (extension/index.ts) and of `main.ts --open` (contracts.md K2, K5).
- */
 export async function openServicePane(pane: string, doc: string): Promise<PaneResult> {
 	return splitPane(pane, dirname(doc), withLanguage(["bun", SERVICE_ENTRY, doc]));
 }
@@ -68,7 +59,6 @@ export async function focusPane(pane: string): Promise<{ ok: true } | { ok: fals
 	return result.ok ? { ok: true } : result;
 }
 
-/** Move an existing pane, its program running on, beside `target` wherever that sits in the layout. */
 export async function movePane(
 	pane: string,
 	side: "left-of" | "right-of",
@@ -78,14 +68,11 @@ export async function movePane(
 	return result.ok ? { ok: true } : result;
 }
 
-/** A pane of this window as `tern inspect --json` reports it. */
 export interface TernPane {
 	readonly pane: string;
 	readonly title: string;
 	readonly cwd: string;
-	/** Where the window shows it: its session's name and the tab's number in that session. */
 	readonly place: { readonly session: string; readonly tab: number } | null;
-	/** Set when omp runs in the pane: its session file. */
 	readonly ompSession: string | null;
 }
 
@@ -93,7 +80,6 @@ const idOf = (value: unknown): string | null =>
 	typeof value === "number" && Number.isSafeInteger(value) ? String(value) : typeof value === "string" && value ? value : null;
 const textOf = (value: unknown): string => (typeof value === "string" ? value : "");
 
-/** Every pane of the window this program runs in (Tern scopes `inspect` to it). */
 export async function listPanes(): Promise<{ ok: true; panes: readonly TernPane[] } | { ok: false; error: string }> {
 	const result = await tern(["inspect", "--json"]);
 	if (!result.ok) return result;

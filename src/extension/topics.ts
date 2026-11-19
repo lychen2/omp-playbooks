@@ -1,6 +1,3 @@
-// The playbook_* tools' detailed instructions, served by their own docTopics() as
-// `xd://<tool>/<topic>`. File headers supply the description pointers; only bodies are served.
-// The language rule is generated each time docTopics() reads it.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "@oh-my-pi/pi-coding-agent";
@@ -17,7 +14,6 @@ interface Topic {
 	readonly read: () => string;
 }
 
-/** The rule every text added to a Playbook follows, in the language of this omp process now. */
 function languageTopic(): string {
 	const writeIn = language() === "zh" ? "Chinese" : "English";
 	return [
@@ -30,7 +26,6 @@ function languageTopic(): string {
 	].join("\n");
 }
 
-/** Every tool's topics, from the files beside this module and the language rule. */
 export function playbookTopics(dir = join(import.meta.dir, "topics")): ReadonlyMap<string, readonly Topic[]> {
 	const tools = new Map<string, Topic[]>([
 		[

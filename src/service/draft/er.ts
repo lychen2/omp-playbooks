@@ -394,8 +394,6 @@ export function renderEr(spec: ErSpec, ctx: RenderContext): Rendered {
 		};
 	});
 	const byName = new Map(boxes.map((box) => [box.entity.name, box]));
-	// Rank parents before dependants. Kahn's pass leaves cyclic components together;
-	// edges within a rank use outside lanes rather than crossing the entity boxes.
 	const arcs = relationships
 		.filter((rel) => rel.from !== rel.to)
 		.map((rel) => (rel.source.kind === "field" ? { from: rel.to, to: rel.from } : { from: rel.from, to: rel.to }));
@@ -413,8 +411,6 @@ export function renderEr(spec: ErSpec, ctx: RenderContext): Rendered {
 				if (!remaining) queue.push(to);
 			}
 	}
-	// Lay out disconnected components independently: otherwise a long edge
-	// between ranks could cross an unrelated component's entity boxes.
 	const neighbors = new Map<string, string[]>(boxes.map((box) => [box.entity.name, []]));
 	for (const arc of arcs) {
 		neighbors.get(arc.from)!.push(arc.to);

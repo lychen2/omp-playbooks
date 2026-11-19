@@ -1,7 +1,3 @@
-// Runs inside the coordinator's JS `eval` kernel, never in the extension process
-// (contracts.md K2 "eval 辅助"). The extension imports it into a cell that uses `playbook.*`.
-// It only composes the public playbook_* tools with the kernel's own `agent()`, so the
-// document service stays the single owner of Launch state.
 import { tr } from "../../omomp-shared/i18n";
 
 type ToolCall = (args: Record<string, unknown>) => Promise<unknown>;
@@ -16,7 +12,6 @@ type AgentOptions = {
 type Spawn = (prompt: string, options?: AgentOptions) => Promise<AgentHandle>;
 type RecordKind = "update" | "result" | "failure" | "retrospective";
 
-/** Where the cell runs: set by `playbook.exec` for an orchestration Launch, empty otherwise. */
 export type PlaybookContext = { readonly doc?: string; readonly run?: string; readonly launch?: string };
 
 export type PlaybookDeps = PlaybookContext & {
@@ -24,12 +19,6 @@ export type PlaybookDeps = PlaybookContext & {
 	readonly agent: Spawn;
 };
 
-/**
- * One subagent started for a Launch and already bound to it. `blocks` are the Launch's roots;
- * `ownsLaunch` says this subagent's Launch was created for it alone (`playbook.agent`), so recording
- * its result closes the Launch; a subagent added with `playbook.spawn` shares a Launch it does not own.
- * `run` is absent for a Launch of the Playbook itself.
- */
 export type Spawned = {
 	readonly doc?: string;
 	readonly run?: string;
@@ -44,13 +33,8 @@ export type AgentRequest = AgentOptions & { readonly doc?: string; readonly run?
 
 class PlaybookError extends Error {}
 
-/**
- * Subagents this kernel started, by Launch: the module stays loaded across eval cells, so `playbook.stop`
- * in a later cell reaches the handles `playbook.agent` and `playbook.spawn` returned earlier.
- */
 const started = new Map<string, Spawned[]>();
 
-/** `playbook_launch {op: "launch"}`: the blocks' shared execution contract comes back with the Launch. */
 type Created = {
 	readonly launch: string;
 	readonly kind: string;
@@ -58,7 +42,6 @@ type Created = {
 	readonly agent?: string;
 	readonly isolated?: boolean;
 };
-/** `playbook_launch {op: "info"}`: `text` is the current baseline, the snapshot's text until a rebase; `run` is null for the Playbook itself. */
 type LaunchInfo = {
 	readonly run: string | null;
 	readonly kind: string;
@@ -78,7 +61,6 @@ function stringAt(value: object, key: string): string {
 	return field;
 }
 
-/** Tool results arrive as the tool's JSON text; `{error}` is a failed call. */
 function decode(value: unknown): unknown {
 	const parsed: unknown = typeof value === "string" ? JSON.parse(value) : value;
 	if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
@@ -135,7 +117,6 @@ function textOf(value: unknown): string {
 	return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
-/** `handle.wait()` without a schema returns the final text JSON-encoded (`"\"text\""`); decode that layer. */
 function unwrap(value: unknown): unknown {
 	if (typeof value !== "string") return value;
 	try {
@@ -175,11 +156,6 @@ export function createPlaybook(deps: PlaybookDeps) {
 		};
 	};
 
-	/**
-	 * Bind before any wait: the Launch records the agent even if the cell is cut short later.
-	 * When `agent()` itself fails on a Launch this call created, the Launch is closed so it does
-	 * not stay open with no agent; an existing Launch (spawn) is left as it is.
-	 */
 	async function start(
 		target: { doc?: string; run?: string },
 		launch: string,
@@ -207,10 +183,6 @@ export function createPlaybook(deps: PlaybookDeps) {
 		return spawned;
 	}
 
-	/**
-	 * launch → agent() → bind; returns at once, without waiting for the subagent. Options the caller
-	 * leaves out come from the blocks' execution contract that `launch` returns.
-	 */
 	async function agent(request: AgentRequest): Promise<Spawned> {
 		const target = scope(request.doc, request.run);
 		const launch = created(await call("playbook_launch", { ...target, op: "launch", blocks: [...request.blocks] }));
@@ -230,11 +202,6 @@ export function createPlaybook(deps: PlaybookDeps) {
 		return start(target, launch.launch, request.blocks, launch.text, { ...defaults, ...agentOptions(request) }, true);
 	}
 
-	/**
-	 * Wait for a spawned subagent and record its outcome on the execution log: about `block`, or the
-	 * Launch's only block. Afterwards the Launch closes when `close` says so, by default when the
-	 * subagent owns it.
-	 */
 	async function result(spawned: Spawned, options: { readonly block?: string; readonly close?: boolean } = {}): Promise<unknown> {
 		const target = { ...docArg(spawned.doc), ...(spawned.run ? { run: spawned.run } : {}) };
 		const block = options.block ?? (spawned.blocks.length === 1 ? spawned.blocks[0] : undefined);
@@ -260,7 +227,6 @@ export function createPlaybook(deps: PlaybookDeps) {
 		agent,
 		result,
 
-		/** Another subagent on an open Launch, with the Launch's current baseline (its snapshot until a rebase); it does not own the Launch. */
 		async spawn(launch: string, request: AgentOptions & { readonly doc?: string } = {}): Promise<Spawned> {
 			const info = launchInfo(await call("playbook_launch", { ...docArg(request.doc), op: "info", launch }));
 			if (info.closed)
@@ -272,10 +238,6 @@ export function createPlaybook(deps: PlaybookDeps) {
 			return start(scope(request.doc, info.run ?? undefined), launch, info.blocks, info.text, agentOptions(request), false);
 		},
 
-		/**
-		 * Cancel every subagent this kernel started for `launch`, then set the Launch's roots that are still
-		 * running back to todo. A pending `playbook.result` for them records the failure and closes the Launch.
-		 */
 		async stop(launch: string, request: { readonly doc?: string } = {}): Promise<{ readonly cancelled: readonly string[] }> {
 			const workers = started.get(launch) ?? [];
 			if (workers.length === 0)
@@ -297,7 +259,6 @@ export function createPlaybook(deps: PlaybookDeps) {
 			return { cancelled: workers.map((worker) => worker.id) };
 		},
 
-		/** agent() then result(): start one subagent for the blocks, record what it returns and close its Launch. */
 		async run(request: AgentRequest & { readonly block?: string }): Promise<unknown> {
 			const spawned = await agent(request);
 			return result(spawned, request.block ? { block: request.block } : {});

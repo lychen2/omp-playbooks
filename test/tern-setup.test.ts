@@ -2,8 +2,6 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
-// ensureTernPlugin runs once per process, so a missing Tern is checked in a child Bun whose
-// PATH is an empty directory: omp would roll the install back if the factory threw there.
 test("with no tern on PATH, setup reports absent instead of throwing", async () => {
 	const emptyPath = await mkdtemp("/tmp/pb-no-tern-");
 	try {

@@ -1,13 +1,6 @@
-// The subagent types this omp session can launch. omp exposes no list to extensions; the built-in task
-// tool's description is the one public place where the session renders it, already filtered by the
-// session's disabled agents, spawn policy and plan mode. This module reads that rendering and nothing
-// else: when the format is not there, the answer is "unavailable", never a guess. omp still decides
-// again at launch.
-
 import { tr } from "../../omomp-shared/i18n";
 import type { AgentAnswer } from "../domain/protocol";
 
-/** What `pi.getAllTools()` returns for a tool, as far as this reader needs. */
 export interface ToolDescription {
 	readonly name: string;
 	readonly description: string;
@@ -16,7 +9,6 @@ export interface ToolDescription {
 
 const HEADING = "# Available Agents";
 
-/** The agent names under the built-in task tool's `# Available Agents` heading. */
 export function availableAgents(tools: readonly ToolDescription[]): AgentAnswer {
 	const task = tools.filter((tool) => tool.name === "task" && tool.sourceInfo.source === "builtin");
 	if (task.length !== 1)

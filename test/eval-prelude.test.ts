@@ -6,7 +6,6 @@ type Call =
 	| { readonly kind: "agent"; readonly prompt: string; readonly options: Parameters<PlaybookDeps["agent"]>[1] }
 	| { readonly kind: "wait" };
 
-/** The launch_info record as K1 returns it: `baselines[0]` is the snapshot text, later entries come from rebase. */
 type Info = {
 	readonly kind?: string;
 	readonly baselines?: readonly string[];

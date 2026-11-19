@@ -48,7 +48,6 @@ type HtmlNode =
 	| { readonly kind: "link"; readonly href: string; readonly children: readonly HtmlNode[] }
 	| { readonly kind: "svg"; readonly source: string; readonly w: number; readonly h: number; readonly alt: string };
 
-/** HTML normalized to Tern's closed element vocabulary; attributes cannot escape into TSP. */
 export interface HtmlSpec {
 	readonly nodes: readonly HtmlNode[];
 }
@@ -369,7 +368,6 @@ function decode(text: string): string {
 			code = numericReplacements[code] ?? code;
 			return String.fromCodePoint(!code || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) ? 0xfffd : code);
 		}
-		// Only legacy core references are unambiguous without a semicolon.
 		if (!semicolon && !["amp", "lt", "gt", "quot", "nbsp", "copy", "reg"].includes(name)) return reference;
 		return (
 			(Object.hasOwn(entities, name) ? entities[name] : undefined) ??
@@ -383,7 +381,6 @@ function attribute(element: RawElement, name: string): string {
 	return element.attributes.find((value) => value.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
-/** Small tolerant tag/text scanner: not a browser DOM, but preserves text and nesting. */
 function scan(source: string, firstLine: number, diagnostics: DraftDiagnostic[]): Parsed<readonly RawNode[]> {
 	const roots: RawNode[] = [];
 	const stack: RawElement[] = [];
@@ -471,7 +468,6 @@ function scan(source: string, firstLine: number, diagnostics: DraftDiagnostic[])
 			if (lower === "td" || lower === "th") closeOptional(["td", "th"], ["tr", "table"]);
 			if (["thead", "tbody", "tfoot"].includes(lower)) closeOptional(["thead", "tbody", "tfoot"], ["table"]);
 		}
-		// Bound every raw tree, including SVG, before any recursive normalization or rendering.
 		if (stack.length >= 256) {
 			diagnostics.push(
 				diagnostic("html", line, tr("HTML nesting exceeds 256 levels; reduce tag nesting.", "HTML 嵌套深度超过 256 层；请减少标签嵌套。")),
@@ -529,7 +525,6 @@ function decodeCss(value: string): string {
 	);
 }
 
-/** Inspect CSS tokens without treating quoted text or comments as active references. */
 function externalCssReference(value: string): boolean {
 	const skipSpace = (start: number): number => {
 		let cursor = start;
@@ -573,7 +568,6 @@ function externalCssReference(value: string): boolean {
 			} else if (!quote && value.startsWith("/*", cursor)) {
 				const end = value.indexOf("*/", cursor + 2);
 				if (end < 0) return true;
-				// A comment is whitespace, not part of an unquoted URL.
 				target += " ";
 				cursor = end + 1;
 			} else target += char;

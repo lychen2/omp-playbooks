@@ -7,8 +7,6 @@ describe("process language", () => {
 		const previous = process.env.OMOMP_LANG;
 		const words = ["a b", "c'd", 'say "hi"', "e$'x", "D:\\x y\\"];
 		const probe = [process.execPath, "-e", "console.log(JSON.stringify([process.env.OMOMP_LANG, ...process.argv.slice(1)]))", ...words];
-		// `omp bash` has bash semantics (the words use ANSI-C `$'…'` quoting); running the produced
-		// command through `bash -c` exercises the same quoting without an installed, configured omp.
 		const run = async (argv: readonly string[]): Promise<unknown> => {
 			const [, shell, flag, line] = argv;
 			expect(shell).toBe("bash");

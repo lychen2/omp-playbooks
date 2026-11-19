@@ -1,6 +1,3 @@
-// The pane endpoint of a main omp session: while the session lives, a document service can ask it to
-// become a Playbook's coordinator (see `PaneRequest` in src/domain/protocol.ts). The endpoint belongs to
-// this process; the host refuses a second listener on one that another live process answers on.
 import { type IpcConnection, IpcServer } from "@oh-my-pi/pi-natives";
 import type { PaneReply, PaneRequest } from "../domain/protocol";
 
@@ -10,7 +7,6 @@ export interface PaneListener {
 	close(): void;
 }
 
-/** A request is one short JSON line; anything longer is not one. */
 const MAX_REQUEST = 64 * 1024;
 
 function parse(line: string): PaneRequest | null {
@@ -25,7 +21,6 @@ function parse(line: string): PaneRequest | null {
 	}
 }
 
-/** One request line, one reply line, then the session ends the connection. */
 function answer(connection: IpcConnection, handle: PaneHandler): void {
 	let answered = false;
 	connection.start(
@@ -49,7 +44,6 @@ function answer(connection: IpcConnection, handle: PaneHandler): void {
 	);
 }
 
-/** Listen at `endpoint` unless another live process already does; null then. */
 export async function listenPane(endpoint: string, handle: PaneHandler): Promise<PaneListener | null> {
 	let server: IpcServer;
 	let closed = false;
@@ -65,7 +59,6 @@ export async function listenPane(endpoint: string, handle: PaneHandler): Promise
 			answer(connection, handle);
 		});
 	} catch (error) {
-		// Another live process answers on this endpoint.
 		if (typeof error === "object" && error !== null && "code" in error && error.code === "EADDRINUSE") return null;
 		throw error;
 	}

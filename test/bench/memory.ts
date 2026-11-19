@@ -1,18 +1,4 @@
 #!/usr/bin/env bun
-// Same-load memory benchmark for the document service (oh-my-omp/omp-playbooks#26 G2).
-//
-//   bun test/bench/memory.ts fixture <dir> [--runs 200] [--running 20] [--entries 520] [--template-entries 5000]
-//   bun test/bench/memory.ts measure --src <repo root> --fixture <dir> [--poll 60]
-//   bun test/bench/memory.ts compare --base <repo root> --fixture <dir> [--poll 60]
-//   bun test/bench/memory.ts diff --base <repo root> --fixture <dir>
-//   bun test/bench/memory.ts compare-transport --base <repo root> --fixture <dir>
-//   bun test/bench/memory.ts pages --src <repo root> --fixture <dir> [--limit 200]
-//   bun test/bench/memory.ts compare-derived --base <repo root> --fixtures <dir>,<dir>
-//
-// `measure` copies the fixture, starts `Core` + `serveK1` from the given checkout and reports one JSON line;
-// `compare` runs `measure` for the base checkout and for this checkout in separate processes on the same
-// fixture. The fixture is written through the Store API both versions share (serialize, write, appendEntry,
-// appendLaunch, appendServiceRecord), so either version reads it.
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { IpcConnection, IpcServer, ipcEndpoint } from "@oh-my-pi/pi-natives";
@@ -53,9 +39,6 @@ function required(args: readonly string[], name: string): string {
 	return value;
 }
 
-// ---------------------------------------------------------------- fixture
-
-/** Deterministic filler text of about `size` characters. */
 function filler(seed: number, size: number): string {
 	const words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu"];
 	const out: string[] = [];
@@ -147,7 +130,6 @@ async function writeFixture(directory: string, args: readonly string[]): Promise
 		};
 		if (run !== null) append({ type: "run_started", name: `Run ${run}` });
 		for (const [index, id] of launches.entries()) {
-			// Base's #setLaunch appended the whole record on each change: a few full lines per Launch.
 			const record = launchRecord(id, run, base + index, false);
 			store.appendLaunch(ref, record);
 			store.appendLaunch(ref, { ...record, agents: ["task"] });
@@ -183,11 +165,8 @@ async function writeFixture(directory: string, args: readonly string[]): Promise
 	console.log(JSON.stringify({ fixture: directory, runs, running, perRun, templateEntries }));
 }
 
-// ---------------------------------------------------------------- K1 line client (independent of src/extension)
-
 class LineClient {
 	readonly #pending = new Map<string, (frame: Record<string, unknown>) => void>();
-	/** Event frames, in arrival order. */
 	readonly events: Record<string, unknown>[] = [];
 	readonly #connection: IpcConnection;
 	#next = 0;
@@ -221,9 +200,6 @@ class LineClient {
 	}
 }
 
-// ---------------------------------------------------------------- measure
-
-/** Counts every Store call by method name and the characters of whole-file text reads. */
 function countingStore(store: Store, counts: Map<string, number>, bytes: { yaml: number }): Store {
 	const record = (name: string): void => {
 		counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -235,7 +211,6 @@ function countingStore(store: Store, counts: Map<string, number>, bytes: { yaml:
 			return (...args: unknown[]) => {
 				record(key);
 				const result: unknown = value.apply(target, args);
-				// Base: stat() returns the whole text; HEAD: readText() does.
 				if (key === "stat" && typeof result === "object" && result !== null && "text" in result && typeof result.text === "string")
 					bytes.yaml += result.text.length;
 				if (key === "readText" && typeof result === "string") bytes.yaml += result.length;
@@ -258,7 +233,6 @@ function sleep(ms: number): Promise<void> {
 	return promise;
 }
 
-/** A copy of the fixture served by `Core` + `serveK1` of the checkout at `src`, with a K1 client said hello. */
 async function startService(src: string, fixture: string, counts: Map<string, number>, bytes: { yaml: number }, now?: () => number) {
 	// The checkout under test is chosen at run time (base or HEAD), so these imports cannot be static.
 	const { Core }: typeof CoreModule = await import(join(src, "src/service/core.ts"));
@@ -305,7 +279,6 @@ async function measure(args: readonly string[]): Promise<void> {
 	const bytes = { yaml: 0 };
 	const { directory, store, client, rssStart, rssAfterLoad, loadMs, stop } = await startService(src, fixture, counts, bytes);
 
-	// Polling window: nothing on disk changes, so every whole-file read here is spent on change detection.
 	counts.clear();
 	bytes.yaml = 0;
 	await sleep(poll * 1000);
@@ -313,7 +286,6 @@ async function measure(args: readonly string[]): Promise<void> {
 	const pollYamlChars = bytes.yaml;
 	const rssSteady = rss();
 
-	// A disk edit of the template: one block appended outside the service, read back over K1.
 	const templateFile = join(directory, "book.yaml");
 	const parsed = store.parse(readFileSync(templateFile, "utf8"), false);
 	if (!parsed.ok) throw new Error(parsed.error);
@@ -335,7 +307,6 @@ async function measure(args: readonly string[]): Promise<void> {
 		await sleep(50);
 	}
 
-	// Finishing every running Run: its state should leave memory (§2).
 	const summaries = await client.request("runs", {});
 	const runList =
 		summaries.ok === true &&
@@ -419,15 +390,6 @@ async function compare(args: readonly string[]): Promise<void> {
 	for (const key of keys) console.log(`| ${key} | ${JSON.stringify(results.base?.[key])} | ${JSON.stringify(results.head?.[key])} |`);
 }
 
-// ---------------------------------------------------------------- K1 transport (#26 §5 §6)
-
-/**
- * The K1 path of a timeline read and of one large frame, for the checkout at `src`:
- * - the template timeline (5000 entries in the default fixture) read whole, read as a 200-entry page,
- *   and read as its tail, over the service socket: wall time and reply bytes;
- * - one reply frame of `--frame-mb` MiB sent in 16 KiB chunks to that checkout's `K1Client`: wall time
- *   from the first chunk to the parsed reply.
- */
 async function transport(args: readonly string[]): Promise<void> {
 	const src = resolve(required(args, "src"));
 	const fixture = resolve(required(args, "fixture"));
@@ -447,7 +409,6 @@ async function transport(args: readonly string[]): Promise<void> {
 	const tail = await timed({ after: 4800 });
 	stop();
 
-	// One large reply frame, chunked, into the checkout's extension client.
 	// The checkout under test is chosen at run time (base or HEAD), so this import cannot be static.
 	const { K1Client }: typeof ClientModule = await import(join(src, "src/extension/client.ts"));
 	const directory = mkdtempSync("/tmp/opb-bench-");
@@ -459,7 +420,6 @@ async function transport(args: readonly string[]): Promise<void> {
 		})),
 	});
 	let sentAt = 0;
-	// One reply frame of the host's `lines` framing: a frame is one line, so it leaves in one `send`.
 	const server = await IpcServer.listen(path, { framing: "lines" }, (connection) => {
 		connection.start(
 			(line) => {
@@ -517,11 +477,6 @@ async function compareTransport(args: readonly string[]): Promise<void> {
 	}
 }
 
-/**
- * Timeline paging over the socket of the checkout at `src`: the template, a finished Run read back from disk,
- * and a running Run finished during the check. Each is read whole, then page by page (`limit`, continued with
- * `next_after`); the pages must join to the whole read with no overlap. Exits non-zero on any mismatch.
- */
 async function pages(args: readonly string[]): Promise<void> {
 	const src = resolve(required(args, "src"));
 	const fixture = resolve(required(args, "fixture"));
@@ -577,18 +532,10 @@ async function pages(args: readonly string[]): Promise<void> {
 	process.exit(failed ? 1 : 0);
 }
 
-// ---------------------------------------------------------------- derived reads (#26 §3)
-
-/**
- * Per-call cost of the reads derived from the timeline: `view()`, `runs()`, and a human edit (which
- * recomputes checks and compiles every block against the result table). Same fixture shape with a
- * different template timeline length shows whether the cost grows with it.
- */
 async function derived(args: readonly string[]): Promise<void> {
 	const src = resolve(required(args, "src"));
 	const fixture = resolve(required(args, "fixture"));
 	const rounds = numberOption(args, "rounds", 200);
-	// The checkout under test is chosen at run time (base or HEAD), so these imports cannot be static.
 	const { Core }: typeof CoreModule = await import(join(src, "src/service/core.ts"));
 	const { createStore }: typeof StoreModule = await import(join(src, "src/service/store.ts"));
 	const { references }: typeof ReferencesModule = await import(join(src, "src/service/references.ts"));
@@ -626,7 +573,6 @@ async function derived(args: readonly string[]): Promise<void> {
 	const runs = measureCalls(() => {
 		core.runs();
 	});
-	// One human edit per round; its check recompute runs after the fetch wait, so each round awaits it.
 	let text = core.view(template).blocks[0]!.block;
 	const editRounds = Math.max(1, Math.floor(rounds / 10));
 	Bun.gc(true);
@@ -641,7 +587,6 @@ async function derived(args: readonly string[]): Promise<void> {
 		times.push(performance.now() - started);
 		text = core.view(template).blocks[0]!.block;
 	}
-	// The median: an edit round now and then also pays for a timer (write-back, judgment) firing inside it.
 	times.sort((a, b) => a - b);
 	const edit = {
 		msPerCall: Math.round(times[Math.floor(times.length / 2)]! * 1000) / 1000,
@@ -679,13 +624,6 @@ async function compareDerived(args: readonly string[]): Promise<void> {
 	}
 }
 
-// ---------------------------------------------------------------- replay (G3: same answers, same files)
-
-/**
- * A fixed request script over finished, running and template documents, with a fixed clock. Prints every
- * answer and a digest of every Run file and of the entry lines of every log it touched. Launch lines are
- * left out of the digest: their format is what #26 §4 changes; `launch_info` answers carry the replayed state.
- */
 async function replay(args: readonly string[]): Promise<void> {
 	const src = resolve(required(args, "src"));
 	const fixture = resolve(required(args, "fixture"));
@@ -726,7 +664,6 @@ async function replay(args: readonly string[]): Promise<void> {
 		const reply = await client.request(op, requestArgs);
 		answers.push({ op, args: requestArgs, ok: reply.ok, ...(reply.ok === true ? { result: reply.result } : { error: reply.error }) });
 	}
-	// The inspect version, reported back: the report must land in the finished Run's log.
 	const inspected = answers[19];
 	const version =
 		typeof inspected === "object" &&
@@ -739,7 +676,6 @@ async function replay(args: readonly string[]): Promise<void> {
 			: null;
 	const reported = await client.request("report", { run: "r5", blocks: ["b2"], version, result: { kind: "judge_unavailable" } });
 	answers.push({ op: "report", ok: reported.ok, ...(reported.ok === true ? { result: reported.result } : { error: reported.error }) });
-	// What the pane draws, and a Run's update reminder firing with its last update.
 	answers.push({ op: "view(template)", result: core.view({ kind: "template" }) });
 	answers.push({ op: "view(r202)", result: core.view({ kind: "run", run: "r202" as RunId }) });
 	answers.push({ op: "view(r1)", result: core.view({ kind: "run", run: "r1" as RunId }) });

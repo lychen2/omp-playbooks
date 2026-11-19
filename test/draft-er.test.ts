@@ -157,7 +157,6 @@ describe("ER change markers", () => {
 		error("A\n+ B\n- A 1--* B", 2, "删除关系不能连接新增");
 		error("A\n  + b FK -> B\n- B", 1, "新增关系不能连接已删除");
 		error("A\n  - b FK -> B\n+ B", 1, "删除关系不能连接新增");
-		// A written relationship replaces the FK, including its incompatible endpoint check.
 		expect(parsed("A\n  + b FK -> B\n- B\n- A 1--* B").relationships[0]!.change).toBe("removed");
 	});
 });

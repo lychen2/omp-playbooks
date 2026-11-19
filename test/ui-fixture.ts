@@ -50,7 +50,6 @@ export class TestTsp implements TspSession {
 	}
 }
 
-/** A coordinator picker that answers from fixed data and records what was asked of it. */
 export function fakeCoordinators(panes: readonly OmpPane[] = []) {
 	const calls: string[] = [];
 	const coordinators: CoordinatorPicker = {
@@ -83,7 +82,6 @@ export async function fixture(
 	return { ...f, tsp, calls: coordinators.calls };
 }
 
-/** The fakes answer at once; draining queued promise callbacks lets the UI apply each answer. */
 export const settle = async (): Promise<void> => {
 	for (let i = 0; i < 10; i++) await Promise.resolve();
 };

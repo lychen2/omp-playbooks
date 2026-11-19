@@ -323,7 +323,6 @@ describe("dependency discovery", () => {
 		expect([...references.closure(["b1"], contents)]).toEqual(["b1", "b3", "b2"]);
 		expect(references.externalTargets(["b1"], contents)).toEqual([]);
 		expect(references.resultTargets(["b1"], contents)).toEqual([]);
-		// Reached also as a root, the block is expanded and its references are followed.
 		expect([...references.closure(["b1", "b2"], contents)]).toEqual(["b1", "b3", "b2", "b9"]);
 		expect(references.externalTargets(["b1", "b2"], contents).map(references.targetKey)).toEqual(["file:owner.md"]);
 	});

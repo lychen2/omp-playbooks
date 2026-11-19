@@ -41,7 +41,6 @@ import {
 } from "../domain/model";
 import type { LaunchChanges, ParsedFile, ServiceRecord, Store } from "../domain/ports";
 
-// Only boundary decoders inspect untrusted maps. Domain objects are constructed below.
 type Fields = Readonly<Record<string, unknown>>;
 function fields(value: unknown): Fields {
 	if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected a mapping");
@@ -110,11 +109,6 @@ function timestamp(value: unknown): number {
 	if (new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) throw new Error("Invalid calendar date");
 	return at;
 }
-/**
- * Block content by field shape: `body` is a task block, `requirement` + `design` a design block.
- * A task block may also carry its execution contract: `agent` (non-blank after trimming) and `isolated`.
- * `others` are the other keys allowed beside the content keys; mixed or missing shapes are errors.
- */
 function decodeContent(v: Fields, required: readonly string[], optional: readonly string[] = []): BlockContent {
 	if (Object.hasOwn(v, "body")) {
 		keys(v, [...required, "body"], [...optional, "agent", "isolated"]);
@@ -136,7 +130,6 @@ function agentName(value: unknown): string {
 	if (name === "") throw new Error("agent must not be blank");
 	return name;
 }
-/** Content fields as stored in Run log entries; execution contract keys only when set. */
 function contentFields(content: BlockContent): Record<string, string | boolean> {
 	switch (content.kind) {
 		case "task":
@@ -149,11 +142,6 @@ function contentFields(content: BlockContent): Record<string, string | boolean> 
 			return { requirement: content.requirement, design: content.design };
 	}
 }
-/**
- * A block's progress by its keys: `task: false` declares an untracked task block, which has no status or
- * report; every other block has `status` and, for a task block, an optional `report`. A design block is
- * never running and has no report: it is not launched.
- */
 function decodeProgress(v: Fields, content: BlockContent): Progress {
 	if (Object.hasOwn(v, "task")) {
 		if (content.kind !== "task") throw new Error("task: false is only valid on a task block");
@@ -256,9 +244,6 @@ function quoted(text: string): string {
 }
 function bodyScalar(body: string): string {
 	if (!body.isWellFormed()) throw new RangeError("Block body must be well-formed Unicode");
-	// YAML normalizes CR and several Unicode separators; non-printable characters
-	// cannot be represented literally. Escape those strings while ordinary
-	// Markdown remains line-diffable.
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: the class deliberately covers every control character YAML's plain scalar cannot represent
 	if (/[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029\uFFFE\uFFFF]/.test(body)) return `${quoted(body)}\n`;
 	const trailing = body.match(/\n*$/)?.[0].length ?? 0;
@@ -269,7 +254,6 @@ function bodyScalar(body: string): string {
 		.map((line) => `      ${line}\n`)
 		.join("")}`;
 }
-/** Content fields as YAML lines of a block mapping; a task block without a contract is written as before. */
 function contentYaml(content: BlockContent): string {
 	switch (content.kind) {
 		case "task":
@@ -282,7 +266,6 @@ function contentYaml(content: BlockContent): string {
 			return `    requirement: ${bodyScalar(content.requirement)}    design: ${bodyScalar(content.design)}`;
 	}
 }
-/** Progress as YAML lines of a block mapping. */
 function progressYaml(progress: Progress): string {
 	if (progress.kind === "untracked") return "    task: false\n";
 	return `    status: ${progress.status}\n${progress.report === null ? "" : `    report: ${bodyScalar(progress.report)}`}`;
@@ -566,7 +549,6 @@ function decodeLaunch(value: unknown): Launch {
 		closed: decodeClosed(v.closed),
 	});
 }
-/** A `launch_update` line: the Launch's id and the fields that changed, each whole. */
 function decodeLaunchUpdate(value: unknown): { readonly id: LaunchId; readonly changes: LaunchChanges } {
 	const v = fields(value);
 	keys(v, ["id"], ["agents", "baselines", "notified", "dirty", "fetches", "closed"]);
@@ -599,10 +581,6 @@ function missing(error: unknown): boolean {
 	return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 const LINE_CHUNK_BYTES = 64 * 1024;
-/**
- * Decode every line of a JSON-lines file in order, reading it in fixed chunks through one reused buffer:
- * neither the whole text nor an array of all lines is held. A missing file has no lines.
- */
 function eachLine(path: string, visit: (value: unknown) => void): void {
 	let fd: number;
 	try {
@@ -612,7 +590,6 @@ function eachLine(path: string, visit: (value: unknown) => void): void {
 		throw error;
 	}
 	const chunk = Buffer.allocUnsafe(LINE_CHUNK_BYTES);
-	// Bytes of the current line that arrived in earlier chunks (copied out, since `chunk` is reused).
 	const carried: Buffer[] = [];
 	let number = 0;
 	const emit = (tail: Buffer): void => {
@@ -636,7 +613,6 @@ function eachLine(path: string, visit: (value: unknown) => void): void {
 			}
 			if (start < read) carried.push(Buffer.from(chunk.subarray(start, read)));
 		}
-		// A last line without its newline is still a line.
 		if (carried.length > 0) emit(Buffer.alloc(0));
 	} finally {
 		closeSync(fd);
@@ -651,7 +627,6 @@ function append(path: string, value: unknown): void {
 	mkdirSync(dirname(path), { recursive: true });
 	appendFileSync(path, `${JSON.stringify(value)}\n`, "utf8");
 }
-/** Entry payload as stored: block content flattened into its fields (`body`, or `requirement` + `design`). */
 function encodeEntryData(data: EntryData): Record<string, unknown> {
 	const { type: _type, ...rest } = data;
 	if (!("content" in rest)) return rest;
@@ -785,7 +760,6 @@ export function createStore(templatePath: string): Store {
 			const name = `${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}.${extension}`;
 			const folder = `${basename(path)}.assets`;
 			const target = join(baseDir, folder, name);
-			// Same name, same bytes: an existing file is already this image.
 			if (!statSync(target, { throwIfNoEntry: false })) {
 				mkdirSync(join(baseDir, folder), { recursive: true });
 				const temporary = `${target}.${process.pid}.tmp`;

@@ -1,5 +1,3 @@
-// Markdown runs of a drawn text, split into the units a person edits one at a time: paragraphs,
-// headings, `//` comment lines and list items, each with the range of text it came from.
 import type { Target } from "../../domain/model";
 import { references } from "../references";
 import type { TspNode } from "../tsp-types";
@@ -9,15 +7,12 @@ import { slotParts } from "./slot";
 type Block =
 	| { readonly kind: "paragraph"; readonly span: Span; readonly text: string }
 	| { readonly kind: "heading"; readonly span: Span; readonly text: string }
-	/** `// note` lines: `span` and `text` are the note after the marker. */
 	| { readonly kind: "comment"; readonly span: Span; readonly text: string }
 	| {
 			readonly kind: "list";
 			readonly ordered: boolean;
-			/** First number of an ordered list. */
 			readonly start: number;
 			readonly span: Span;
-			/** `span`: the item's lines; `content`: its text after the marker. */
 			readonly items: readonly { readonly span: Span; readonly content: Span; readonly text: string }[];
 	  };
 
@@ -29,7 +24,6 @@ function end(line: SourceLine): number {
 	return line.offset + line.text.length;
 }
 
-/** The editable units of one Markdown run, in order. */
 export function markdownBlocks(lines: readonly SourceLine[]): Block[] {
 	const blocks: Block[] = [];
 	let index = 0;
@@ -63,7 +57,6 @@ export function markdownBlocks(lines: readonly SourceLine[]): Block[] {
 				const contentStart = head.offset + marker[0].length;
 				let last = head;
 				index++;
-				// An item runs on through indented lines, and through unindented ones until a blank line or the next item.
 				while (index < lines.length) {
 					const next = lines[index]!;
 					if (blank(next)) {
@@ -121,7 +114,6 @@ export function markdownBlocks(lines: readonly SourceLine[]): Block[] {
 	return blocks;
 }
 
-/** Inline Markdown a node can carry beside slot controls: `**strong**`, `*em*`, `` `code` `` and plain text. */
 function inlineNodes(id: string, text: string): TspNode[] {
 	const nodes: TspNode[] = [];
 	let index = 0;
@@ -139,23 +131,17 @@ function unreachable(value: never): never {
 	throw new Error(`Unexpected markdown variant: ${JSON.stringify(value)}`);
 }
 
-/** A piece of drawn inline text: Markdown, a slot's control, or a reference drawn as a link. */
 type Piece =
 	| { readonly kind: "text"; readonly text: string }
 	| { readonly kind: "slot"; readonly name: string }
 	| { readonly kind: "reference"; readonly text: string; readonly target: Target; readonly alias: string | null };
 
-/**
- * `text` around its references to known target kinds (code spans hold none, references.md §1), the
- * rest split by `plain`. References are found first, so a slot written inside one stays part of it.
- */
 function referencePieces(text: string, plain: (text: string) => readonly Piece[]): Piece[] {
 	const pieces: Piece[] = [];
 	let offset = 0;
 	for (const reference of references.parseReferences(text)) {
 		const target = references.parseTarget(reference.targetText);
 		if (target === null) continue;
-		// An invalid expression is the compiler's to report; the link still draws, by its default name.
 		const expression = references.parseExpression(reference.expressionText);
 		pieces.push(...plain(text.slice(offset, reference.offset)), {
 			kind: "reference",
@@ -169,7 +155,6 @@ function referencePieces(text: string, plain: (text: string) => readonly Piece[]
 	return pieces;
 }
 
-/** An inline run: each piece in its place, Markdown pieces as `inlineNodes`. */
 function run(ctx: Pick<RenderContext, "edit">, id: string, tag: string, className: string, pieces: readonly Piece[]): TspNode {
 	return {
 		id,
@@ -190,22 +175,15 @@ function run(ctx: Pick<RenderContext, "edit">, id: string, tag: string, classNam
 	};
 }
 
-/**
- * Text drawn as Markdown. A block (`div`) of plain Markdown is a `md` node; inline text (`span`, such as
- * a kv value) and text with controls become inline runs, each control in its place (a `md` node is a
- * block and cannot hold controls, and Tern opens its links without telling the pane).
- */
 function drawText(ctx: RenderContext, id: string, text: string, tag: "div" | "span", pieces: readonly Piece[]): TspNode {
 	if (tag === "div" && pieces.every((piece) => piece.kind === "text")) return { id, k: "md", p: { text } };
 	return run(ctx, id, tag, "", pieces);
 }
 
-/** Text with slot controls and no reference links: a value inside a component such as kv. */
 export function inlineText(ctx: RenderContext, id: string, text: string, tag: "div" | "span" = "div"): TspNode {
 	return drawText(ctx, id, text, tag, slotParts(text, ctx.slots));
 }
 
-/** Prose of a Markdown run: slot controls and reference links. */
 function proseText(ctx: RenderContext, id: string, text: string): TspNode {
 	return drawText(
 		ctx,
@@ -216,13 +194,11 @@ function proseText(ctx: RenderContext, id: string, text: string): TspNode {
 	);
 }
 
-/** A heading's text with its references as links, as `tag` of class `className`; null when it has none. */
 export function linkedHeading(ctx: Pick<RenderContext, "edit">, id: string, text: string, tag: string, className: string): TspNode | null {
 	const pieces = referencePieces(text, (plain) => (plain ? [{ kind: "text", text: plain }] : []));
 	return pieces.some((piece) => piece.kind === "reference") ? run(ctx, id, tag, className, pieces) : null;
 }
 
-/** A Markdown run as its editable units. */
 export function renderMarkdown(ctx: RenderContext, lines: readonly SourceLine[]): TspNode[] {
 	return markdownBlocks(lines).map((block, index): TspNode => {
 		const id = `${ctx.id}.b${index}`;

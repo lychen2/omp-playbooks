@@ -16,15 +16,11 @@ import { outlineProblems } from "./draft/outline";
 import { parseSlots, qualifiedName, type SlotDecl, type SlotTable, setSlotValue, slotTable } from "./draft/slot";
 import type { FrameOp, TspEvent, TspInput, TspNode, TspSession } from "./tsp-types";
 
-/** The block fields drawn as text: a person writes `body` and `requirement`; `design` is the coordinator's. */
 type DraftField = "body" | "requirement" | "design";
-/** What every card draws from the whole document: titles by block id, which blocks exist, and every block's slots as `bN.name`. */
 type DocFacts = { readonly titles: ReadonlyMap<BlockId, string>; readonly blocks: ReadonlySet<BlockId>; readonly slots: SlotTable };
 
-/** The image on the system clipboard now, as the encoded bytes and their MIME type; null when it holds none. */
 export type ClipboardImageReader = () => Promise<{ readonly data: Uint8Array; readonly mimeType: string } | null>;
 
-/** The offline coordinator picker: closed, asking Tern, showing an answer, or carrying out a choice. */
 type CoordPickerState =
 	| { readonly kind: "closed" }
 	| { readonly kind: "loading" }
@@ -34,9 +30,7 @@ type CoordPickerState =
 
 const SURFACE = "playbook";
 const ESC = "\x1b";
-/** The pane always shows the Playbook itself; Runs are copies the coordinator works in. */
 const REF: DocRef = { kind: "template" };
-/** A click on a title waits this long for a second click, which edits the title instead of folding the card. */
 const CLICK_DELAY_MS = 250;
 function viewOptions(): readonly { readonly view: ChangeView; readonly label: string }[] {
 	return [
@@ -46,17 +40,14 @@ function viewOptions(): readonly { readonly view: ChangeView; readonly label: st
 	];
 }
 
-/** TSP sheets reach only descendants of the region root, so every rule targets nodes inside a region. */
 const SURFACE_CSS = [
 	".pb-app { display: flex; flex-direction: column; gap: 14px; padding: 18px 16px 24px; font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--t1); }",
 	".pb-doc-title { display: flex; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 600; }",
 	".pb-hash { color: var(--t3); font-weight: 400; }",
 	".pb-errors { display: flex; flex-direction: column; gap: 2px; }",
-	// A folded card has no body; Tern keeps the empty body's bottom padding unless it is hidden.
 	".sf-card-body:empty { display: none; }",
 	".pb-cards { display: flex; flex-direction: column; gap: 6px; }",
 	".pb-empty { color: var(--t3); }",
-	// Card head: number, title, status icon, then the more and fold buttons at the far end.
 	".pb-head { display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%; }",
 	".pb-nn { flex: 0 0 auto; color: var(--t3); }",
 	".pb-title { flex: 0 1 auto; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }",
@@ -70,7 +61,6 @@ const SURFACE_CSS = [
 	".pb-st:hover { background: var(--l1); }",
 	".pb-st-todo { display: inline-block; width: 13px; height: 13px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--t3); }",
 	".pb-st-done { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ok); color: var(--ok); }",
-	// Card body: one column of sections; a section is a bold head line over its content.
 	".pb-body { display: flex; flex-direction: column; gap: 18px; padding: 2px 4px 4px 0; }",
 	".pb-draft { display: flex; flex-direction: column; gap: 14px; }",
 	".pb-draft-title { margin: 0; font-size: 14px; font-weight: 600; }",
@@ -83,10 +73,8 @@ const SURFACE_CSS = [
 	".pb-editable { min-width: 0; cursor: text; }",
 	".pb-inline { white-space: pre-wrap; }",
 	".pb-inline code { font-family: var(--mono); padding: 0 3px; border-radius: 4px; background: var(--l1); }",
-	// Slot: the current value, underlined, opening its options.
 	".pb-slot { display: inline; padding: 0 2px; border-bottom: 1.5px dashed var(--t3); font-weight: 600; cursor: pointer; }",
 	".pb-slot-open { border-bottom-color: var(--accent); background: rgb(from var(--accent) r g b / 12%); }",
-	// A reference: a link to the block it names, or to an issue, pull request or file Tern opens.
 	".pb-ref { color: var(--accent); text-decoration: underline; cursor: pointer; }",
 	".pb-heading { margin: 0; font-weight: 600; }",
 	".pb-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 6px 10px; border-radius: 6px; text-align: left; cursor: pointer; }",
@@ -100,12 +88,10 @@ const SURFACE_CSS = [
 	".pb-opt-notice { padding: 6px 10px; }",
 	".pb-opt-stale { cursor: default; }",
 	".pb-opt-stale .pb-opt-label { color: var(--t2); }",
-	// SUBAGENT: a dropdown trigger, the value and a chevron in a field-like box.
 	".pb-select { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 4px; padding: 3px 8px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--l2); cursor: pointer; }",
 	".pb-select:hover { background: var(--l1); }",
 	".pb-select-open { box-shadow: inset 0 0 0 1px var(--accent); }",
 	".pb-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-	// Lists: an ordered list's items carry a grip that picks the item up; a click on another item places it there.
 	".pb-list { display: flex; flex-direction: column; margin: 0; padding: 0; }",
 	".pb-li { display: flex; align-items: flex-start; gap: 8px; padding: 3px 6px 3px 2px; border-radius: 6px; }",
 	".pb-li-target { cursor: copy; }",
@@ -114,12 +100,10 @@ const SURFACE_CSS = [
 	".pb-num { flex: 0 0 18px; color: var(--t2); }",
 	".pb-bullet { flex: 0 0 10px; color: var(--t2); }",
 	".pb-li-text { flex: 1 1 auto; min-width: 0; }",
-	// kv: muted keys beside their values.
 	".pb-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 14px; row-gap: 2px; }",
 	".pb-kv-k { color: var(--t2); }",
 	".pb-kv-v { overflow-wrap: anywhere; }",
 	".pb-kv-wide { grid-column: 1 / -1; font-weight: 600; }",
-	// A flow drawn as a chain of cards.
 	".pb-flow { display: flex; flex-direction: column; align-items: center; gap: 0; margin-top: 4px; }",
 	".pb-node { min-width: 200px; max-width: 320px; padding: 6px 14px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--l3, var(--l2)); background: var(--card, transparent); text-align: center; cursor: pointer; }",
 	".pb-node-round { border-radius: 17px; }",
@@ -133,19 +117,16 @@ const SURFACE_CSS = [
 	".pb-tool { padding: 2px 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--l2); font-size: 12px; cursor: pointer; }",
 	".pb-tool:hover { background: var(--l1); }",
 	".pb-danger { color: var(--bad); }",
-	// An in-place edit: the field, then the control that ends it (the same as Enter or Esc).
 	".pb-editing { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; flex: 1 1 auto; }",
 	".pb-editing-line { flex-direction: row; align-items: center; gap: 6px; }",
 	".pb-editing-line > .sf-input { flex: 1 1 auto; min-width: 0; }",
 	".pb-exit { align-self: flex-end; flex: 0 0 auto; padding: 2px 8px; border-radius: 4px; font-family: var(--sans); font-size: 12px; color: var(--accent); box-shadow: inset 0 0 0 1px rgb(from var(--accent) r g b / 45%); cursor: pointer; white-space: nowrap; }",
 	".pb-editing-line > .pb-exit { align-self: center; }",
-	// Comments: `//` and muted small text, never a box.
 	".pb-comment { display: flex; gap: 8px; align-items: flex-start; color: var(--t2); font-size: 12px; }",
 	".pb-comment-slash { flex: 0 0 auto; color: var(--t3); }",
 	".pb-comment-text { display: flex; flex-direction: column; gap: 2px; }",
 	".pb-comment .sf-md { font-size: 12px; color: var(--t2); }",
 	".pb-placeholder { color: var(--t3); }",
-	// Card foot: hairline, the SUBAGENT / WORKTREE columns or the completion report, then the full-width button.
 	".pb-foot { display: flex; flex-direction: column; padding-top: 2px; }",
 	".pb-rule { height: 1px; background: var(--l3, var(--l2)); }",
 	".pb-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }",
@@ -159,7 +140,6 @@ const SURFACE_CSS = [
 	".pb-report-toggle { display: flex; align-items: center; gap: 6px; margin-top: 8px; height: 28px; font-size: 12px; font-weight: 600; letter-spacing: .5px; color: var(--ok); cursor: pointer; }",
 	".pb-report-meta { color: var(--t3); font-weight: 400; letter-spacing: 0; }",
 	".pb-report { margin: 2px 0 0 5px; padding: 2px 0 2px 24px; box-shadow: inset 1px 0 0 var(--l3, var(--l2)); }",
-	// The menu and the slot picker are overlays; their buttons need a look of their own.
 	".pb-menu-item { display: block; width: 100%; padding: 4px 10px; border-radius: 6px; font-family: var(--sans); text-align: left; cursor: pointer; }",
 	".pb-menu-item:hover { background: var(--l1); }",
 	".pb-bar { display: flex; gap: 8px; padding: 6px 16px; }",
@@ -172,28 +152,23 @@ const SURFACE_CSS = [
 
 type Caret = { cursor: number; anchor: number | null };
 
-/** The one piece of text being edited in place; it is applied when editing ends (Enter, Esc, or another action). */
 interface Editing {
-	/** The editable node; its field is `${id}.edit`. */
 	readonly id: string;
 	readonly multiline: boolean;
 	readonly placeholder: string;
 	readonly initial: string;
-	/** Apply the edited text; an error message, or null. */
 	readonly commit: (text: string) => string | null;
 	text: string;
 	caret: Caret;
 	readonly undo: { text: string; caret: Caret }[];
 }
 
-/** An open slot picker: the slot, where it is drawn, and how a picked value is applied. */
 interface Picker {
 	readonly anchor: string;
 	readonly slot: SlotDecl;
 	readonly apply: (value: string) => string | null;
 }
 
-/** A slot as a use reaches it: the block and text that declare it, and its name there. */
 interface SlotAt {
 	readonly owner: BlockId;
 	readonly field: DraftField;
@@ -204,10 +179,8 @@ interface SlotAt {
 
 type Handler = { click?: (mods: readonly string[]) => void; dblclick?: () => void };
 
-/** Largest file a text may embed (am's image limit; code blocks stop far earlier). */
 const MAX_DRAFT_FILE_BYTES = 5 * 1024 * 1024;
 
-/** Read a file a drawn text names: relative to the Playbook directory, only inside it, only a regular file of bounded size. */
 function readDraftFile(baseDir: string, path: string): FileRead {
 	try {
 		const base = realpathSync(baseDir);
@@ -233,11 +206,6 @@ function readDraftFile(baseDir: string, path: string): FileRead {
 	}
 }
 
-/**
- * The image files a pasted text names, as Tern pastes a copied file: its absolute path with shell
- * escapes (`\ `), several separated by spaces; quoted paths, `~/` and `file://` URLs too. Null
- * unless the whole text is such paths.
- */
 export function pastedImagePaths(text: string): readonly string[] | null {
 	const words: string[] = [];
 	let current = "",
@@ -288,7 +256,6 @@ const el = (id: string, tag: string, className: string, c: readonly TspNode[] = 
 	c,
 });
 
-/** An ordered list's items in a new order, renumbered from `start`, keeping the separators the list had. */
 function reorderedList(source: string, span: Span, items: readonly ListItem[], order: readonly number[], start: number): string {
 	const texts = items.map((item) => source.slice(item.span.start, item.span.end));
 	const gaps = items.slice(1).map((item, index) => source.slice(items[index]!.span.end, item.span.start));
@@ -305,7 +272,6 @@ function reorderedList(source: string, span: Span, items: readonly ListItem[], o
 	);
 }
 
-/** K4 front end. Core owns every document; this keeps only what the pane shows and what is being edited. */
 export function startUi(
 	core: CoreApi,
 	tsp: TspSession,
@@ -316,28 +282,20 @@ export function startUi(
 	initThemeSync();
 	let opened = false;
 	let mounted = false;
-	/** Tern render or theme failure; stays until the next one. */
 	let renderError: string | null = null;
-	/** The one open card. */
 	let open: BlockId | null = null;
 	let openChosen = false;
 	let menu: BlockId | null = null;
-	/** The task block whose SUBAGENT dropdown is open. */
 	let agentMenu: BlockId | null = null;
 	let coordPicker: CoordPickerState = { kind: "closed" };
 	let editing: Editing | null = null;
 	let picker: Picker | null = null;
-	/** An ordered list item picked up to be placed elsewhere. */
 	let picked: { readonly list: string; readonly from: number } | null = null;
-	/** The card a followed reference opened, scrolled into view by the next frame and then dropped. */
 	let pendingReveal: BlockId | null = null;
-	/** The selected node of a chain flow, which shows its tools. */
 	let node: { readonly chain: string; readonly index: number } | null = null;
-	/** A notice shown once: it is added to the layer by itself and replaced by the next one. */
 	let toast: { readonly text: string; readonly tone: "error" | "success"; readonly n: number } | null = null;
 	let shownToast: number | null = null;
 	let toastCount = 0;
-	/** The slot picker as it was before the current action ended an edit, so a click on its slot closes it. */
 	let pickerBefore: string | null = null;
 	let titleTimer: Timer | undefined;
 	const selected = new Set<BlockId>();
@@ -345,7 +303,6 @@ export function startUi(
 	const handlers = new Map<string, Handler>();
 	const views = new Map<string, ChangeView>();
 	const summaries = new Map<BlockId, Pick<RenderStatus, "view" | "draftErrors">>();
-	/** The blocks the last redraw drew, in order. */
 	let drawnBlocks: readonly BlockId[] = [];
 	const sentBlobs = new Set<string>();
 
@@ -359,8 +316,6 @@ export function startUi(
 		handlers.set(id, { ...handlers.get(id), ...handler });
 	}
 
-	// ------------------------------------------------------------ in-place editing
-
 	function startEdit(id: string, initial: string, multiline: boolean, commit: (text: string) => string | null, placeholder = ""): void {
 		if (editing && editing.id !== id) finishEdit();
 		editing = { id, multiline, placeholder, initial, commit, text: initial, caret: { cursor: initial.length, anchor: null }, undo: [] };
@@ -370,7 +325,6 @@ export function startUi(
 		const done = editing;
 		if (!done) return;
 		editing = null;
-		// Enter or Esc in the picker's own field, or any action elsewhere, closes the picker.
 		if (done.id === "picker.custom") picker = null;
 		if (done.text !== done.initial) outcome(done.commit(done.text));
 	}
@@ -398,7 +352,6 @@ export function startUi(
 			}),
 		]);
 	}
-	/** A view that turns into its editor on double-click. */
 	function editable(
 		id: string,
 		view: TspNode,
@@ -413,10 +366,6 @@ export function startUi(
 		return el(id, tag, "pb-editable", [view], { actions: { dblclick: "edit" } });
 	}
 
-	/**
-	 * Keep pasted images beside the Playbook and put their lines at the caret of the multi-line text
-	 * being edited, or else at the end of the open card's body (design card: requirement).
-	 */
 	function placeImages(images: readonly { readonly data: Uint8Array; readonly mimeType: string }[]): void {
 		const lines: string[] = [];
 		for (const image of images) {
@@ -441,7 +390,6 @@ export function startUi(
 			const caret = editing.caret;
 			const before = editing.text.slice(0, caret.anchor === null ? caret.cursor : Math.min(caret.cursor, caret.anchor));
 			const after = editing.text.slice(caret.anchor === null ? caret.cursor : Math.max(caret.cursor, caret.anchor));
-			// An image is drawn only on a line of its own.
 			insert(`${before === "" || before.endsWith("\n") ? "" : "\n"}${text}${after === "" || after.startsWith("\n") ? "" : "\n"}`);
 			return;
 		}
@@ -462,7 +410,6 @@ export function startUi(
 				"success",
 			);
 	}
-	/** Ctrl+V, or a paste with no text: the image data on the system clipboard. */
 	function pasteClipboardImage(): void {
 		void clipboardImage()
 			.then(
@@ -481,10 +428,6 @@ export function startUi(
 			)
 			.then(redraw);
 	}
-	/**
-	 * Cmd+V of copied image files: Tern pastes their paths, and the files themselves go in. One file
-	 * this process may not open (another app's container) is still on the clipboard as image data.
-	 */
 	function pasteImageFiles(paths: readonly string[]): void {
 		const images: { data: Uint8Array; mimeType: string }[] = [];
 		for (const path of paths) {
@@ -516,8 +459,6 @@ export function startUi(
 		placeImages(images);
 	}
 
-	// ------------------------------------------------------------ drawing one block field
-
 	function imageNode(id: string, bytes: Uint8Array, mime: string, alt: string, size?: { readonly w: number; readonly h: number }): TspNode {
 		const blob = createHash("sha256").update(bytes).digest("hex");
 		if (!sentBlobs.has(blob)) {
@@ -527,7 +468,6 @@ export function startUi(
 		return { id, k: "image", p: { blob, alt, ...(size ? { w: size.w, h: size.h } : {}) } };
 	}
 
-	/** Set a slot where it is declared: a person's text is written; a design's goes to the coordinator as a change request. */
 	function setSlot(slot: SlotAt, value: string): string | null {
 		if (value === slot.decl.value) return null;
 		if (slot.field === "design")
@@ -542,11 +482,6 @@ export function startUi(
 			: core.edit(REF, slot.owner, slot.field, slot.source, next);
 	}
 
-	/**
-	 * How a person changes one field of a block: a task body and a design's requirement are written
-	 * directly; a design is the coordinator's, so a person's change to it (a slot value) goes as a
-	 * change request.
-	 */
 	function fieldHost(block: Block, field: DraftField, source: string, doc: DocFacts): EditHost {
 		const slots = parseSlots(source).slots;
 		const target: HumanField | null = field === "design" ? null : field;
@@ -554,7 +489,6 @@ export function startUi(
 		const write = (next: string): string | null =>
 			next === source || target === null ? null : core.edit(REF, block.id, target, source, next);
 		const replace = (span: Span, text: string): string | null => write(source.slice(0, span.start) + text + source.slice(span.end));
-		/** The slot a `{{name}}` of this text reaches: its own, or as `bN.name` another block's. */
 		const slotOf = (name: string): SlotAt | null => {
 			const local = slots.get(name);
 			if (local) return { owner: block.id, field, source, name, decl: local };
@@ -666,7 +600,6 @@ export function startUi(
 						parts.push(editor(editing));
 						return;
 					}
-					// A slot node is set where its slot is declared, so it can change even where the flow cannot.
 					const slot = item.slot === null ? null : slotOf(item.slot);
 					const actions = writable ? { click: "invoke", dblclick: "edit" } : slot ? { dblclick: "edit" } : null;
 					const card = el(nodeId, "div", `pb-node pb-node-${item.shape}${chosen === index ? " pb-node-sel" : ""}`, [], {
@@ -718,7 +651,6 @@ export function startUi(
 				});
 				return el(id, "div", "pb-flow", parts);
 			},
-			// A link is named by its alias, else by what it points to; its source shows on hover and in the editor.
 			reference(id, text, to, alias) {
 				switch (to.kind) {
 					case "block":
@@ -746,7 +678,6 @@ export function startUi(
 					case "issue":
 					case "pull":
 						return el(id, "span", "pb-ref", [], { text: alias ?? `${to.owner}/${to.repo}#${to.number}`, title: text, href: to.url });
-					// Tern percent-decodes a link without a scheme, so each path segment is encoded.
 					case "file":
 						return el(id, "span", "pb-ref", [], {
 							text: alias ?? to.path,
@@ -767,7 +698,6 @@ export function startUi(
 		const host: DraftHost = {
 			id: `${block.id}.${field}`,
 			context: {
-				// Resolved per draw, so a theme change redraws figures in the new palette.
 				svg: (id, svg, size, alt) =>
 					imageNode(id, new TextEncoder().encode(prepareSvg(svg, svgFigurePalette())), "image/svg+xml", alt, size),
 				image: (id, bytes, mime, alt) => imageNode(id, bytes, mime, alt),
@@ -796,7 +726,6 @@ export function startUi(
 				),
 		};
 		const drawn = renderDraft(source, host);
-		// A component that cannot be drawn points here: every problem is listed with its line.
 		const problems: TspNode[] =
 			drawn.diagnostics.length === 0
 				? []
@@ -820,8 +749,6 @@ export function startUi(
 					];
 		return { nodes: [...drawn.nodes, ...problems], errors: drawn.diagnostics.filter((found) => found.severity === "error").length };
 	}
-
-	// ------------------------------------------------------------ cards
 
 	function statusIcon(item: BlockView): TspNode | null {
 		const block = item.block;
@@ -859,7 +786,6 @@ export function startUi(
 					});
 		on(titleId, {
 			click: (mods) => {
-				// ⌘-click picks tasks to launch together; a plain click folds the card once no second click follows.
 				if (mods.includes("meta")) {
 					if (block.content.kind !== "task" || block.progress.kind === "untracked") {
 						notify(tr("Only task blocks can be launched together", "只有任务块能一起启动"));
@@ -917,7 +843,6 @@ export function startUi(
 		const rule = el(`${id}.rule`, "div", "pb-rule");
 		const progress = block.progress;
 		if (progress.status === "done") {
-			// The completion report the subagent wrote replaces the SUBAGENT row; it starts folded.
 			const toggleId = `${id}.report.toggle`;
 			const unfolded = reports.has(block.id);
 			on(toggleId, {
@@ -992,7 +917,6 @@ export function startUi(
 		]);
 	}
 
-	/** A field a person writes (task body, design requirement): drawn like any text, edited part by part, double-click to start when empty. */
 	function personText(
 		block: Block,
 		field: HumanField & DraftField,
@@ -1018,7 +942,6 @@ export function startUi(
 		};
 	}
 
-	/** A design card: the person's requirement, the coordinator's design, and the line that sends a change request. */
 	function designBody(
 		block: Block,
 		content: Extract<Block["content"], { kind: "design" }>,
@@ -1067,7 +990,6 @@ export function startUi(
 		};
 	}
 
-	/** Every block is drawn for its render status; only the open card's body is mounted. */
 	function card(item: BlockView, number: string, doc: DocFacts): TspNode {
 		const block = item.block;
 		const isOpen = open === block.id;
@@ -1085,7 +1007,6 @@ export function startUi(
 		drawn.nodes.forEach(collect);
 		summaries.set(block.id, { view: { md, images }, draftErrors: drawn.errors });
 		const bottom = isOpen ? foot(item) : null;
-		// The same rule as the `outline` check, said where the text is.
 		const outlined = isOpen ? outlinedText(block.content) : null;
 		const outline = outlined === null ? [] : outlineProblems(outlined);
 		const outlineNode: TspNode[] =
@@ -1113,8 +1034,6 @@ export function startUi(
 			],
 		};
 	}
-
-	// ------------------------------------------------------------ regions
 
 	function main(view: DocView): TspNode {
 		const titleId = "doc.title";
@@ -1232,7 +1151,6 @@ export function startUi(
 		return { id: "dock.view", k: "col", c: rows };
 	}
 
-	/** Ask Tern and the omp sessions for the candidates now; the list is shown, never kept as truth. */
 	function openCoordPicker(): void {
 		const opened = { kind: "loading" } as const;
 		coordPicker = opened;
@@ -1242,7 +1160,6 @@ export function startUi(
 			redraw();
 		});
 	}
-	/** Run one picker action; the picker shows what it is doing until the owner answers. */
 	function coordWork(text: string, work: () => Promise<{ readonly error: string | null; readonly done: string }>): void {
 		if (coordPicker.kind === "working") return;
 		coordPicker = { kind: "working", text };
@@ -1366,7 +1283,6 @@ export function startUi(
 		return nodes;
 	}
 
-	/** The SUBAGENT dropdown: 默认, then what the coordinator's session can launch, as it last answered. */
 	function agentOptions(block: BlockId, current: string | null): TspNode[] {
 		const choose = (id: string, label: string, value: string | null, note = ""): TspNode => {
 			on(id, {
@@ -1415,7 +1331,6 @@ export function startUi(
 				});
 				break;
 		}
-		// A saved name the session no longer lists stays visible; it is never rewritten behind the person's back.
 		if (current !== null && !(list.kind === "listed" && list.names.includes(current))) {
 			options.push(
 				el("agents.current", "div", "pb-opt pb-opt-on pb-opt-stale", [
@@ -1465,7 +1380,6 @@ export function startUi(
 				c: agentOptions(agentItem.block.id, agentItem.block.content.agent ?? null),
 			});
 		}
-		// Only while offline: a hello arriving meanwhile is the answer, and the picker goes away.
 		if (coordPicker.kind !== "closed" && !core.coordinator().connected) {
 			children.push({ id: "coord", k: "overlay", p: { anchor: { node: "status.coordinator" }, size: "sm" }, c: coordOptions() });
 		}
@@ -1509,23 +1423,12 @@ export function startUi(
 		return { id: "layer.view", k: "col", c: children };
 	}
 
-	// ------------------------------------------------------------ frames
-
-	/**
-	 * Frame facts (`blockError`, `pendingOverdue`) come from `tsp.status`; only the open card is mounted,
-	 * so a closed card keeps the facts of the last frame that mounted it.
-	 */
 	function reportStatus(blocks: readonly string[]): void {
-		// The blocks of the frame the statuses belong to: the view the last redraw drew.
 		for (const id of drawnBlocks) {
 			const summary = summaries.get(id);
 			if (summary && blocks.includes(id)) core.setRenderStatus(REF, id, { ...tsp.status(id), ...summary });
 		}
 	}
-	/**
-	 * Region roots are added once; each redraw replaces their one child. A toast is its own child of
-	 * the layer, added once and removed by the next one, so redraws never show it again.
-	 */
 	function redraw(): void {
 		if (!opened) return;
 		const view = core.view(REF);
@@ -1555,7 +1458,6 @@ export function startUi(
 			shownToast = toast.n;
 		}
 		ops.push(["focus", field]);
-		// A followed reference scrolls to the card it opened, once: later redraws leave the scroll alone.
 		if (pendingReveal !== null && present.has(pendingReveal)) ops.push(["reveal", `${pendingReveal}.card`, "start"]);
 		pendingReveal = null;
 		const s = tsp.frame(ops, open !== null ? [open] : []);
@@ -1583,11 +1485,7 @@ export function startUi(
 		applyText(editing.text.slice(0, event.from) + event.text + editing.text.slice(event.to), event.cursor);
 	}
 
-	// ------------------------------------------------------------ keys
-
 	let keyBuffer = "";
-	// A pty read can contain several keys (including text followed immediately by Esc).
-	// Only incomplete CSI/paste sequences survive into the next read.
 	function keys(bytes: string): void {
 		keyBuffer += bytes;
 		while (keyBuffer.length) {
@@ -1617,7 +1515,6 @@ export function startUi(
 			keyBuffer = keyBuffer.slice(plain.length);
 		}
 	}
-	/** Enter, Ctrl+Enter and Esc end the edit and apply it; Shift+Enter is a new line in a multi-line field. */
 	function key(bytes: string): void {
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal input is matched at the byte level, ESC is the lead-in
 		const kitty = /^\x1b\[(\d+)(?:;(\d+)(?::(\d+))?)?u$/.exec(bytes);
@@ -1644,12 +1541,10 @@ export function startUi(
 			end();
 			return;
 		}
-		// Ctrl+V without the kitty protocol, and a paste carrying no text (the clipboard holds only an image).
 		if (bytes === "\x16" || bytes === `${ESC}[200~${ESC}[201~`) {
 			pasteClipboardImage();
 			return;
 		}
-		// Cmd+V of copied image files arrives as their paths, typed all at once.
 		const pasted = bytes.startsWith(`${ESC}[200~`) && bytes.endsWith(`${ESC}[201~`) ? bytes.slice(6, -6) : bytes;
 		const files = pasted.includes("/") ? pastedImagePaths(pasted.trim()) : null;
 		if (files) {
@@ -1700,7 +1595,6 @@ export function startUi(
 		const to = caret.anchor === null ? caret.cursor : Math.max(caret.cursor, caret.anchor);
 		applyText(editing.text.slice(0, from) + inserted + editing.text.slice(to), from + inserted.length);
 	}
-	/** Enter or Esc: apply the edit; with nothing being edited, Esc closes the menu, the picker and a picked item. */
 	function end(): void {
 		if (editing) finishEdit();
 		else {
@@ -1714,8 +1608,6 @@ export function startUi(
 		redraw();
 	}
 
-	// ------------------------------------------------------------ events
-
 	function event(input: TspEvent): void {
 		switch (input.ev) {
 			case "action": {
@@ -1724,7 +1616,6 @@ export function startUi(
 				const dblclick = input.act === "edit" ? handler?.dblclick : undefined;
 				if (!click && !dblclick) break;
 				pickerBefore = picker?.anchor ?? null;
-				// Acting anywhere else ends the edit in progress and applies it; the picker's own options take over its field.
 				if (editing && !(editing.id === "picker.custom" && input.id.startsWith("picker."))) finishEdit();
 				if (click) click(input.mods);
 				else dblclick?.();
@@ -1782,7 +1673,6 @@ export function startUi(
 				break;
 		}
 	}
-	// Every change in one tick is drawn by one redraw (#26 §7).
 	let redrawQueued = false;
 	core.onChange(() => {
 		if (redrawQueued) return;

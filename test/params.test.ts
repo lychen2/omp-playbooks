@@ -2,9 +2,6 @@ import { expect, test } from "bun:test";
 import * as zod from "@oh-my-pi/omptype/zod";
 import { toolParameters } from "../src/extension/params";
 
-// Issue #36: the public flat shape parses at the execute entry into the same internal values the
-// previous op-union produced. Every internal branch keeps a call; every op rejects a field that is
-// not its own.
 const schemas = toolParameters(zod);
 const call = (name: keyof Omit<typeof schemas, "wire">, params: Record<string, unknown>): unknown => {
 	const entry = schemas[name];
@@ -22,16 +19,13 @@ const rejects = (name: keyof Omit<typeof schemas, "wire">, params: Record<string
 };
 
 for (const [name, params, internal] of [
-	// open (1)
 	["playbook_open", { doc: "/book.yaml" }, { doc: "/book.yaml" }],
-	// read (2): the public `op` is optional; omitted and "read" both map to the plain-read branch.
 	["playbook_read", { doc: "/b.yaml", run: "r1", block: "b1" }, { doc: "/b.yaml", run: "r1", block: "b1" }],
 	[
 		"playbook_read",
 		{ op: "revisions", doc: "/b.yaml", run: "r1", block: "b3", after: 4 },
 		{ doc: "/b.yaml", run: "r1", op: "revisions", block: "b3", after: 4 },
 	],
-	// edit (12)
 	[
 		"playbook_edit",
 		{ op: "title", doc: "/b.yaml", run: "r1", block: "b1", title: "Renamed" },
@@ -65,7 +59,6 @@ for (const [name, params, internal] of [
 		{ doc: "/b.yaml", op: "insert_design", title: "D", design: "## A" },
 	],
 	["playbook_edit", { op: "delete", doc: "/b.yaml", block: "b1" }, { doc: "/b.yaml", op: "delete", block: "b1" }],
-	// The calls the old shape wrote as `after: null`, `value: null` keep that internal value.
 	["playbook_edit", { op: "move", doc: "/b.yaml", block: "b1", position: "top" }, { doc: "/b.yaml", op: "move", block: "b1", after: null }],
 	[
 		"playbook_edit",
@@ -88,7 +81,6 @@ for (const [name, params, internal] of [
 		{ op: "isolated", doc: "/b.yaml", block: "b1", isolation: "default" },
 		{ doc: "/b.yaml", op: "isolated", block: "b1", value: null },
 	],
-	// compile (2)
 	[
 		"playbook_compile",
 		{ op: "compile", doc: "/b.yaml", run: "r1", blocks: ["b1", "b3"] },
@@ -99,7 +91,6 @@ for (const [name, params, internal] of [
 		{ op: "refetch", doc: "/b.yaml", targets: ["file:x.md"] },
 		{ doc: "/b.yaml", op: "refetch", targets: ["file:x.md"] },
 	],
-	// check (2)
 	[
 		"playbook_check",
 		{ op: "inspect", doc: "/b.yaml", run: "r1", blocks: ["b1"] },
@@ -115,7 +106,6 @@ for (const [name, params, internal] of [
 		{ op: "report", doc: "/b.yaml", blocks: ["b1"], version: "v1", result: "judge_unavailable" },
 		{ doc: "/b.yaml", op: "report", blocks: ["b1"], version: "v1", result: { kind: "judge_unavailable" } },
 	],
-	// run (3)
 	[
 		"playbook_run",
 		{ op: "start", doc: "/b.yaml", name: "Run", update_every: 30 },
@@ -123,7 +113,6 @@ for (const [name, params, internal] of [
 	],
 	["playbook_run", { op: "finish", doc: "/b.yaml", run: "r1" }, { doc: "/b.yaml", op: "finish", run: "r1" }],
 	["playbook_run", { op: "list", doc: "/b.yaml" }, { doc: "/b.yaml", op: "list" }],
-	// timeline (3)
 	[
 		"playbook_timeline",
 		{ op: "read", doc: "/b.yaml", run: "r1", after: 6, limit: 200 },
@@ -135,7 +124,6 @@ for (const [name, params, internal] of [
 		{ doc: "/b.yaml", op: "post", run: "r1", kind: "result", text: "Done", block: "b1", launch: "l1", next: 60, quote: "m-1" },
 	],
 	["playbook_timeline", { op: "snooze", doc: "/b.yaml", run: "r1", after: 30 }, { doc: "/b.yaml", op: "snooze", run: "r1", after: 30 }],
-	// launch (5)
 	[
 		"playbook_launch",
 		{ op: "launch", doc: "/b.yaml", run: "r1", blocks: ["b1"] },
@@ -160,7 +148,6 @@ test("playbook_read accepts an explicit op read and still produces the plain-rea
 });
 
 for (const [name, params] of [
-	// One call per op carrying a field that only a sibling op of the same device knows.
 	["playbook_open", { doc: "/b.yaml", op: "start" }],
 	["playbook_read", { op: "revisions", doc: "/b.yaml", title: "T" }],
 	["playbook_read", { doc: "/b.yaml", limit: 10 }],

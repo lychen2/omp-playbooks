@@ -12,23 +12,16 @@ type Deferred = { readonly promise: Promise<Reply>; readonly resolve: (reply: Re
 type Link = { readonly connection: IpcConnection; readonly ready: Deferred; readonly pending: Map<string, Pending>; dead: boolean };
 type State =
 	| { readonly kind: "disconnected" }
-	/** Dialing the endpoint; no connection exists yet. */
 	| { readonly kind: "dialing"; readonly ready: Deferred }
-	/** Connected, hello in flight. */
 	| { readonly kind: "connecting"; readonly link: Link }
 	| { readonly kind: "connected"; readonly link: Link; readonly hello: unknown }
 	| { readonly kind: "closed" };
 
-/**
- * The `result` field's already-serialized text inside an ok-reply line, or undefined when the line
- * is not in the deterministic shape `{"id":<id>,"ok":true,"result":<result>}` the service writes.
- */
 function rawResult(line: string, id: string): string | undefined {
 	const prefix = `{"id":${JSON.stringify(id)},"ok":true,"result":`;
 	return line.startsWith(prefix) && line.endsWith("}") ? line.slice(prefix.length, -1) : undefined;
 }
 
-/** One document connection. Requests are never replayed across transports. */
 export class K1Client {
 	private state: State = { kind: "disconnected" };
 	private reconnect: NodeJS.Timeout | undefined;
@@ -69,7 +62,6 @@ export class K1Client {
 		try {
 			connection = await IpcConnection.connect(this.endpoint, { framing: "lines" });
 		} catch {
-			// No endpoint, or nobody listening on it: the same answer as a connection that ended first.
 			if (this.state.kind === "dialing" && this.state.ready === ready) {
 				this.state = { kind: "disconnected" };
 				this.scheduleReconnect();
@@ -78,7 +70,6 @@ export class K1Client {
 			return ready.promise;
 		}
 		const link: Link = { connection, ready, pending: new Map(), dead: false };
-		// close() ran while this dial was in flight: this connection is nobody's now.
 		const state = this.state as State;
 		if (state.kind !== "dialing" || state.ready !== ready) {
 			connection.destroy();
@@ -131,7 +122,6 @@ export class K1Client {
 			},
 		};
 	}
-	/** Frames arrive in order; a frame the parser rejects ends the connection like any other framing error. */
 	private receive(link: Link, line: string): void {
 		if (link.dead) return;
 		try {

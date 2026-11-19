@@ -8,9 +8,7 @@ export interface ImageSpec {
 	readonly path: string;
 }
 
-/** Largest image a card draws; a pasted image above it is refused rather than saved undrawable. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** File extension a pasted image is saved under, by MIME type; each is one `imageMime` draws. */
 export const IMAGE_EXTENSIONS: Readonly<Partial<Record<string, string>>> = {
 	"image/png": "png",
 	"image/jpeg": "jpg",
@@ -63,7 +61,6 @@ export function parseImage(input: FenceInput): Parsed<ImageSpec> {
 	};
 }
 
-/** The MIME type a card draws a file of this name as; null when it draws no such file. */
 export function imageMime(path: string): string | null {
 	switch (extname(path).toLowerCase()) {
 		case ".png":

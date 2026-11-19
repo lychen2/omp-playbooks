@@ -1,6 +1,3 @@
-// Document service core: the single owner of Playbook, Run, Launch, lock and timeline state.
-// Rules come from design/; section references are given at each rule.
-
 import { tr } from "../../omomp-shared/i18n";
 import type {
 	AgentList,
@@ -79,38 +76,24 @@ interface DocState {
 	blocks: Block[];
 	run: RunMeta | null;
 	locks: Map<BlockId, BlockLock>;
-	/** Each block's content, kept current by every edit (#26 §3): the compiler's `blocks` input. */
 	readonly contents: Map<BlockId, BlockContent>;
-	/** Parsed form of the file as last written or read, and the file's mtime then (README §S2). */
 	lastDoc: PlaybookDoc;
 	lastMtime: number;
 	writeTimer: Timer | undefined;
 	parseError: string | null;
 	findings: Map<BlockId, Findings>;
 	render: Map<BlockId, RenderStatus>;
-	/** Per block-set key: last inspect version, whether its inputs changed since (checks.md §5), and the accepted report. */
 	inspections: Map<string, { blocks: BlockId[]; version: string; stale: boolean; report: JudgeReport | null }>;
-	/** The document's revision journal (authoritative copy on disk; append-only). */
 	revisions: Revision[];
-	/** The document's execution log (authoritative copy on disk; append-only). */
 	readonly log: DocLog;
 }
 
-/**
- * A document's execution log (the template's and every Run's) and what is derived from it (#26 §3): built
- * once when the log is read, then kept current by every append, so no reader scans `entries`. The log on
- * disk stays the authority; this is rebuilt from it whenever the document is read back.
- */
 interface DocLog {
 	readonly entries: TimelineEntry[];
-	/** Block result table (references.md §4): each block's latest associated result post. */
 	readonly results: Map<BlockId, BlockResult>;
-	/** Blocks a launch request was sent for and no Launch has been created from since. */
 	readonly pending: Set<string>;
 	retrospective: boolean;
-	/** The `due` of every `update_due` entry: a reminder fires once per due. */
 	readonly fired: Set<number>;
-	/** When the latest `update` post was written. */
 	lastUpdateAt: number | null;
 }
 
@@ -122,7 +105,6 @@ function noteEntry(log: DocLog, entry: TimelineEntry): void {
 		if (data.kind === "retrospective") log.retrospective = true;
 		if (data.kind === "update") log.lastUpdateAt = entry.at;
 	} else if (data.type === "event_sent" && data.event === "launch_requested") {
-		// A launch request stays pending until a Launch is created from that block.
 		for (const block of requestedBlocks(data.data)) log.pending.add(block);
 	} else if (data.type === "launch_created") {
 		for (const block of data.blocks) log.pending.delete(block);
@@ -137,10 +119,6 @@ function newLog(entries: TimelineEntry[]): DocLog {
 	return log;
 }
 
-/**
- * What stays in memory of a finished Run (#26 §2): the inputs of its RunSummary, and its inspections, which a
- * later `report` answers. Its document, log and Launches stay on disk and are read back per request.
- */
 interface FinishedRun {
 	readonly meta: RunMeta;
 	readonly done: number;
@@ -154,7 +132,6 @@ interface LaunchState {
 	pending: { event: string; maxSeq: number; result: CompileResult } | null;
 	deadline: number | null;
 	timer: Timer | undefined;
-	/** Incremented to discard in-flight judgments (rebase, close, disconnect). */
 	generation: number;
 	judging: boolean;
 }
@@ -163,16 +140,13 @@ interface ConnState {
 	conn: Connection;
 	session: string | null;
 	pane: string | null;
-	/** The coordinator's answer about launchable subagents; it belongs to this connection and ends with it. */
 	agents: AgentList;
 }
 
 const JUDGE_DELAY_MS = 2_000;
 const WRITE_DELAY_MS = 1_000;
 const DISK_POLL_MS = 1_000;
-/** How many document-level messages `errors()` keeps. */
 const ERRORS_KEPT = 200;
-/** How long a SUBAGENT dropdown waits for the coordinator's list. */
 const AGENTS_WAIT_MS = 5_000;
 
 function keyOf(ref: DocRef): DocKey {
@@ -181,11 +155,9 @@ function keyOf(ref: DocRef): DocKey {
 function refOf(key: DocKey): DocRef {
 	return key === "template" ? { kind: "template" } : { kind: "run", run: key };
 }
-/** The document a Launch or an event belongs to: its Run, or the template when it names none. */
 function keyOfRun(run: RunId | null | undefined): DocKey {
 	return run ?? "template";
 }
-/** `run` as optional event/request field: present only for a Run. */
 function runField(doc: { readonly run: RunMeta | null }): { run?: RunId } {
 	return doc.run ? { run: doc.run.id } : {};
 }
@@ -202,7 +174,6 @@ function sameProgress(a: Progress, b: Progress): boolean {
 function isRetrospective(entry: TimelineEntry): boolean {
 	return entry.data.type === "post" && entry.data.kind === "retrospective";
 }
-/** RunSummary `done` and `total`: tracked blocks that are done, and all tracked blocks. */
 function progressCounts(blocks: readonly Block[]): { done: number; total: number } {
 	let done = 0;
 	let total = 0;
@@ -213,13 +184,11 @@ function progressCounts(blocks: readonly Block[]): { done: number; total: number
 	}
 	return { done, total };
 }
-/** Blocks a logged `launch_requested` payload names; the log keeps event data as it was sent. */
 function requestedBlocks(data: unknown): readonly string[] {
 	if (typeof data !== "object" || data === null || !("blocks" in data) || !Array.isArray(data.blocks)) return [];
 	return data.blocks.filter((value): value is string => typeof value === "string");
 }
 
-/** A block as K1 sends it: content and progress fields flattened beside `kind`, as the file writes them. */
 export function wireBlock(block: Block): Record<string, unknown> {
 	const content = block.content;
 	const progress =
@@ -242,12 +211,10 @@ export function wireBlock(block: Block): Record<string, unknown> {
 	}
 }
 
-/** A block's execution contract; a design block has none. */
 function taskConfig(content: BlockContent): TaskConfig {
 	return content.kind === "task" ? { agent: content.agent, isolated: content.isolated } : {};
 }
 
-/** Task content carrying exactly `config`; unset keys are absent, not undefined. */
 function withConfig(content: Extract<BlockContent, { kind: "task" }>, config: TaskConfig): BlockContent {
 	return {
 		kind: "task",
@@ -257,7 +224,6 @@ function withConfig(content: Extract<BlockContent, { kind: "task" }>, config: Ta
 	};
 }
 
-/** The contract every root shares: a key is returned only when all roots set it to the same value. */
 function sharedConfig(contents: readonly BlockContent[]): TaskConfig {
 	const configs = contents.map(taskConfig);
 	const shared = <K extends keyof TaskConfig>(key: K): TaskConfig[K] => {
@@ -269,7 +235,6 @@ function sharedConfig(contents: readonly BlockContent[]): TaskConfig {
 	return { ...(agent === undefined ? {} : { agent }), ...(isolated === undefined ? {} : { isolated }) };
 }
 
-/** Three-way merge of one value: the disk's change wins unless the disk still has the last written value. */
 function merged<T>(disk: T, written: T, current: T): T {
 	return disk === written || disk === current ? current : disk;
 }
@@ -282,26 +247,16 @@ export class Core implements CoreApi, K1Handler {
 	readonly #panes: PaneControl;
 	readonly #now: () => number;
 
-	/** The template and every running Run; a Run leaves when it finishes (#26 §2). */
 	readonly #docs = new Map<DocKey, DocState>();
 	readonly #finished = new Map<RunId, FinishedRun>();
-	/** Every Run id, in load and start order: the order `runs()` lists them in. */
 	readonly #runOrder: RunId[] = [];
-	/** Launches of the documents in `#docs`. */
 	readonly #launches = new Map<LaunchId, LaunchState>();
-	/** The Run each Launch of a finished Run belongs to; the record itself stays in that Run's log. */
 	readonly #finishedLaunches = new Map<LaunchId, RunId>();
-	/** Document fetch table (references.md §5); not persisted. */
 	readonly #fetches = new Map<TargetKey, FetchOutcome>();
-	/**
-	 * External targets a finished Run still reads. Their fetch entries stay in `#fetches` for the process's
-	 * lifetime, so no later eviction drops them (#34); only the keys are kept, never the Run's document.
-	 */
 	readonly #finishedTargets = new Set<TargetKey>();
 	readonly #inflight = new Map<TargetKey, Promise<FetchOutcome>>();
 	readonly #listeners = new Set<(ref: DocRef | null) => void>();
 	readonly #reminders = new Map<RunId, Timer>();
-	/** The latest `ERRORS_KEPT` document-level messages; the oldest is dropped first (#26 §8). */
 	readonly #errors: string[] = [];
 
 	#maxBlock = 0;
@@ -309,7 +264,6 @@ export class Core implements CoreApi, K1Handler {
 	#maxLaunch = 0;
 	#editSeq = 0;
 	#eventSeq = 0;
-	/** Numbers the SUBAGENT list requests, so only the latest one's wait can end. */
 	#agentsAsked = 0;
 	#conn: ConnState | null = null;
 	#diskTimer: Timer | undefined;
@@ -323,15 +277,11 @@ export class Core implements CoreApi, K1Handler {
 		this.#now = deps.now ?? Date.now;
 	}
 
-	// ============================================================ loading
-
-	/** Load template, Runs, service records and execution logs; start disk polling and reminders. */
 	load(): string | null {
 		const template = this.#store.readTemplate();
 		if (!template.ok) return template.error;
 		this.#loadLive({ kind: "template" }, template.doc, null);
 		for (const record of this.#store.readServiceRecords()) this.#noteRecord(record);
-		// One Run file at a time: a finished Run is read once for its summary and counters, then dropped.
 		for (const run of this.#store.runIds()) {
 			const parsed = this.#store.readRun(run);
 			if (!parsed.ok || parsed.run === null) {
@@ -394,19 +344,16 @@ export class Core implements CoreApi, K1Handler {
 		};
 	}
 
-	/** Read a document's log, advancing the id and edit counters past everything it records. */
 	#readLog(ref: DocRef): { readonly entries: TimelineEntry[]; readonly launches: ReadonlyMap<LaunchId, Launch> } {
 		const log = this.#store.readLog(ref);
 		for (const launch of log.launches.values()) {
 			this.#maxLaunch = Math.max(this.#maxLaunch, idNumber(launch.id));
-			// Dirty entries are ordered against new edits, so edit numbers continue above every persisted one.
 			for (const [, seq] of launch.dirty) this.#editSeq = Math.max(this.#editSeq, seq);
 		}
 		for (const entry of log.entries) if (entry.data.type === "block_edited") this.#editSeq = Math.max(this.#editSeq, entry.data.edit);
 		return log;
 	}
 
-	/** The template or a running Run: kept in memory with its log and Launches. */
 	#loadLive(ref: DocRef, doc: PlaybookDoc, run: RunMeta | null): void {
 		const log = this.#readLog(ref);
 		this.#docs.set(keyOf(ref), this.#newDocState(ref, doc, run, log.entries));
@@ -414,7 +361,6 @@ export class Core implements CoreApi, K1Handler {
 			this.#launches.set(launch.id, { record: launch, pending: null, deadline: null, timer: undefined, generation: 0, judging: false });
 	}
 
-	/** A finished Run: only its summary stays; its log is read for the counters and dropped. */
 	#loadFinished(doc: PlaybookDoc, meta: RunMeta): void {
 		const log = this.#readLog({ kind: "run", run: meta.id });
 		for (const id of log.launches.keys()) this.#finishedLaunches.set(id, meta.id);
@@ -426,22 +372,11 @@ export class Core implements CoreApi, K1Handler {
 		});
 	}
 
-	/**
-	 * A closed Run reads these external targets; keep only their keys, so no eviction — at any later point, in this
-	 * process or after a restart — drops the fetch entries that answer that Run (#34).
-	 */
 	#rememberTargets(doc: DocState): void {
 		for (const target of this.#refs.externalTargets([...doc.contents.keys()], doc.contents))
 			this.#finishedTargets.add(this.#refs.targetKey(target));
 	}
 
-	/**
-	 * #26 §2: a finished Run leaves memory. Its Launches (all closed by now) and its document go; what `runs()`
-	 * reports stays. The external targets it reads are remembered in `#finishedTargets`, and the fetch entries for
-	 * every remembered target stay in the table: a closed Run's `compile` and `inspect` answer from the fetches of
-	 * the moment it finished, no matter how many later Runs are evicted, and only an explicit `refetch` replaces
-	 * one (#34). Fetch entries no document references go with it (R9).
-	 */
 	#evict(doc: DocState, meta: RunMeta): void {
 		for (const [id, launch] of this.#launches) {
 			if (launch.record.run !== meta.id) continue;
@@ -464,7 +399,6 @@ export class Core implements CoreApi, K1Handler {
 		for (const key of this.#fetches.keys()) if (!referenced.has(key)) this.#fetches.delete(key);
 	}
 
-	/** A finished Run's document and log read back from disk for one request; the caller does not keep it. */
 	#readFinished(run: RunId, finished: FinishedRun): Outcome<DocState> {
 		const parsed = this.#store.readRun(run);
 		if (!parsed.ok || parsed.run === null)
@@ -477,12 +411,10 @@ export class Core implements CoreApi, K1Handler {
 			);
 		const ref: DocRef = { kind: "run", run };
 		const doc = this.#newDocState(ref, parsed.doc, parsed.run, this.#store.readLog(ref).entries, finished.inspections);
-		// Reading it is what makes its targets known: a Run finished before a restart never passed through #evict.
 		this.#rememberTargets(doc);
 		return ok(doc);
 	}
 
-	/** A Launch by id: a live one, or a finished Run's record read back from its log (closed; not kept). */
 	#launchById(id: LaunchId): LaunchState | null {
 		const live = this.#launches.get(id);
 		if (live) return live;
@@ -509,13 +441,9 @@ export class Core implements CoreApi, K1Handler {
 		}
 	}
 
-	// ============================================================ lookup helpers
-
-	/** The template or a running Run. */
 	#doc(ref: DocRef): DocState | null {
 		return this.#docs.get(keyOf(ref)) ?? null;
 	}
-	/** A document that must be in memory: the template, or the running Run a live Launch or event names. */
 	#live(key: DocKey): DocState {
 		const doc = this.#docs.get(key);
 		if (!doc) throw new Error(`no document ${key}`);
@@ -531,8 +459,6 @@ export class Core implements CoreApi, K1Handler {
 		for (const listener of this.#listeners) listener(ref);
 	}
 
-	// ============================================================ execution log
-
 	#append(doc: DocState, origin: EntryOrigin, data: EntryData): TimelineEntry {
 		const entries = doc.log.entries;
 		const entry: TimelineEntry = { seq: (entries.at(-1)?.seq ?? 0) + 1, at: this.#now(), origin, data };
@@ -541,8 +467,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#store.appendEntry(doc.ref, entry);
 		return entry;
 	}
-
-	// ============================================================ fetching and compiling
 
 	async #fetchTarget(target: ExternalTarget, replace: boolean): Promise<FetchOutcome> {
 		const key = this.#refs.targetKey(target);
@@ -567,7 +491,6 @@ export class Core implements CoreApi, K1Handler {
 		return promise;
 	}
 
-	/** Fetch every external target the closure of `roots` references that is missing from the document table. */
 	async #ensureFetched(doc: DocState, roots: readonly BlockId[]): Promise<void> {
 		const targets = this.#refs.externalTargets(roots, doc.contents);
 		await Promise.all(
@@ -579,21 +502,13 @@ export class Core implements CoreApi, K1Handler {
 		return { blocks: doc.contents, fetches, results: doc.log.results };
 	}
 
-	/** Compile after fetching missing targets; the compile itself runs synchronously on current state. */
 	async #compileNow(doc: DocState, blocks: readonly BlockId[]): Promise<CompileResult> {
 		await this.#ensureFetched(doc, blocks);
 		return this.#refs.compile(blocks, this.#input(doc, this.#fetches));
 	}
 
-	// ============================================================ edits
-
-	/**
-	 * Apply one edit and its consequences: timeline entry, dirty tracking for Launches
-	 * (launch-events.md §3), write-back scheduling (README §S2), checks and redraw.
-	 */
 	#applyEdit(doc: DocState, origin: EditOrigin, change: EditChange): number {
 		const seq = ++this.#editSeq;
-		// The contents before a change of compiled text or existence: closures before and after are compared.
 		const changesContents =
 			change.kind === "content" ||
 			change.kind === "insert" ||
@@ -601,8 +516,6 @@ export class Core implements CoreApi, K1Handler {
 			(change.kind === "field" && change.field !== "title");
 		const beforeContents = changesContents ? new Map(doc.contents) : null;
 		let touched: BlockId | null = null;
-		// A coordinator's task edit is its own work and does not notify it back; a design is the input
-		// of the task blocks that reference it, so the coordinator's design edits reach their Launches.
 		let notifies = origin !== "coordinator";
 		switch (change.kind) {
 			case "field": {
@@ -626,7 +539,6 @@ export class Core implements CoreApi, K1Handler {
 				break;
 			}
 			case "config": {
-				// The execution contract is not compiled text: it neither marks Launches dirty nor ends inspections.
 				const index = doc.blocks.findIndex((block) => block.id === change.block);
 				const current = doc.blocks[index]!;
 				if (current.content.kind !== "task") throw new Error(`block ${change.block} is not a task block`);
@@ -637,7 +549,6 @@ export class Core implements CoreApi, K1Handler {
 				break;
 			}
 			case "progress": {
-				// Progress is not compiled text either: a report or a status never reaches a Launch's prompt.
 				const index = doc.blocks.findIndex((block) => block.id === change.block);
 				doc.blocks[index] = { ...doc.blocks[index]!, progress: change.progress };
 				this.#append(doc, origin, { type: "progress_changed", block: change.block, progress: change.progress });
@@ -690,7 +601,6 @@ export class Core implements CoreApi, K1Handler {
 		return seq;
 	}
 
-	/** checks.md §5: a pending inspection and a shown report end when their inputs change. */
 	#invalidateInspections(doc: DocState, affects: (blocks: readonly BlockId[]) => boolean): void {
 		for (const [setKey, inspection] of doc.inspections) {
 			if (inspection.stale || !affects(inspection.blocks)) continue;
@@ -698,7 +608,6 @@ export class Core implements CoreApi, K1Handler {
 		}
 	}
 
-	/** launch-events.md §3: human and disk edits of body or existence enter `dirty`. */
 	#markDirty(doc: DocState, block: BlockId, seq: number, beforeContents: ReadonlyMap<BlockId, BlockContent>): void {
 		const key = keyOf(doc.ref);
 		for (const launch of this.#launches.values()) {
@@ -719,8 +628,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#emit(doc.ref);
 	}
 
-	// ============================================================ write-back and disk edits (README §S2)
-
 	#scheduleWrite(doc: DocState): void {
 		if (doc.writeTimer) return;
 		doc.writeTimer = setTimeout(() => {
@@ -730,7 +637,6 @@ export class Core implements CoreApi, K1Handler {
 	}
 
 	#writeNow(doc: DocState): void {
-		// A disk edit made since the last poll (a subagent writing its report) is taken in before writing over it.
 		this.#pollDoc(doc);
 		if (doc.parseError !== null) return;
 		const snapshot: PlaybookDoc = { title: doc.title, blocks: [...doc.blocks] };
@@ -739,7 +645,6 @@ export class Core implements CoreApi, K1Handler {
 		doc.lastMtime = this.#store.mtime(doc.ref) ?? doc.lastMtime;
 	}
 
-	/** Run mapping changes are written immediately, before their timeline entry (runs.md §6). */
 	#writeRunNow(doc: DocState): void {
 		if (doc.writeTimer) {
 			clearTimeout(doc.writeTimer);
@@ -752,14 +657,12 @@ export class Core implements CoreApi, K1Handler {
 		for (const doc of this.#docs.values()) this.#pollDoc(doc);
 	}
 
-	/** #26 §1: the file's mtime decides whether it is read at all; only a changed mtime reads the text. */
 	#pollDoc(doc: DocState): void {
 		const mtime = this.#store.mtime(doc.ref);
 		if (mtime === null || mtime === doc.lastMtime) return;
 		const text = this.#store.readText(doc.ref);
 		if (text === null) return;
 		doc.lastMtime = mtime;
-		// The text last written or read is rebuilt only here, when the file may have changed.
 		if (text === this.#store.serialize(doc.lastDoc, doc.run)) {
 			if (doc.parseError !== null) {
 				doc.parseError = null;
@@ -805,7 +708,6 @@ export class Core implements CoreApi, K1Handler {
 			// fields on disk must not overwrite edits made since the last write-back.
 			const previous = before.get(block.id) ?? current;
 			if (block.content.kind !== current.content.kind) {
-				// A kind switch replaces the content and its progress whole.
 				if (block.content.kind === previous.content.kind) return;
 				if (block.title !== previous.title && block.title !== current.title)
 					this.#applyEdit(doc, "disk", { kind: "field", block: block.id, field: "title", text: block.title });
@@ -828,12 +730,9 @@ export class Core implements CoreApi, K1Handler {
 				if (config.agent !== mine.agent || config.isolated !== mine.isolated)
 					this.#applyEdit(doc, "disk", { kind: "config", block: block.id, config });
 			}
-			// The subagent that runs a block writes its status and report into the file itself.
 			if (!sameProgress(block.progress, previous.progress) && !sameProgress(block.progress, current.progress))
 				this.#applyEdit(doc, "disk", { kind: "progress", block: block.id, progress: block.progress });
 		});
-		// Blocks added since the last write-back are not on disk: they keep their slots, and the disk's
-		// blocks fill the remaining slots in the disk's order.
 		const onDisk = new Set(next.blocks.map((block) => block.id));
 		const diskOrder = next.blocks.map((block) => block.id);
 		let slot = 0;
@@ -841,9 +740,6 @@ export class Core implements CoreApi, K1Handler {
 		if (order.join() !== doc.blocks.map((block) => block.id).join()) this.#applyEdit(doc, "disk", { kind: "reorder", order });
 	}
 
-	// ============================================================ Launch persistence and judgment (launch-events.md)
-
-	/** #26 §4: the log gets only the fields that changed; every change of a record goes through here. */
 	#setLaunch(launch: LaunchState, record: Launch): void {
 		const previous = launch.record;
 		launch.record = record;
@@ -858,7 +754,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#store.appendLaunchUpdate(refOf(keyOfRun(record.run)), record.id, changes);
 	}
 
-	/** Open, owned by the connected coordinator, and in a document that can still run (the template, or a running Run). */
 	#isActive(launch: LaunchState): boolean {
 		const doc = this.#docs.get(keyOfRun(launch.record.run));
 		return doc !== undefined && !this.#isFinished(doc) && launch.record.closed === null && this.#conn?.session === launch.record.session;
@@ -875,7 +770,6 @@ export class Core implements CoreApi, K1Handler {
 		}, wait);
 	}
 
-	/** launch-events.md §3 judgment. */
 	async #judge(launch: LaunchState): Promise<void> {
 		if (!this.#isActive(launch) || launch.pending !== null || launch.judging) return;
 		if (launch.record.dirty.length === 0) return;
@@ -888,7 +782,6 @@ export class Core implements CoreApi, K1Handler {
 		const fetches = await this.#launchFetches(launch);
 		launch.judging = false;
 		if (generation !== launch.generation || !this.#isActive(launch) || launch.pending !== null) return;
-		// The same inputs `rebase` accepts: current contents and the document's current results.
 		const result = this.#launchText(
 			doc,
 			launch.record.blocks,
@@ -923,11 +816,6 @@ export class Core implements CoreApi, K1Handler {
 			void this.#judge(launch);
 	}
 
-	/**
-	 * The judgment fetch table of a Launch, extended with every target its current closure references
-	 * (launch-events.md §3). Fetching yields to other requests that may edit the closure, so this repeats
-	 * until the contents at return need no target the table lacks.
-	 */
 	async #launchFetches(launch: LaunchState): Promise<Map<TargetKey, FetchOutcome>> {
 		const doc = this.#docs.get(keyOfRun(launch.record.run))!;
 		for (;;) {
@@ -941,7 +829,6 @@ export class Core implements CoreApi, K1Handler {
 				added.push([key, outcome]);
 			}
 			if (added.length === 0) return table;
-			// A concurrent judgment or rebase may have recorded the same targets meanwhile.
 			const recorded = new Set(launch.record.fetches.map(([key]) => key));
 			this.#setLaunch(launch, { ...launch.record, fetches: [...launch.record.fetches, ...added.filter(([key]) => !recorded.has(key))] });
 		}
@@ -957,10 +844,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#append(this.#live(keyOfRun(launch.record.run)), origin, { type: "launch_closed", launch: launch.record.id });
 	}
 
-	/**
-	 * What a Launch's subagent receives: the compiled prompt, and for a prompt Launch the implicit
-	 * instructions to write the blocks' status and completion report into the document file itself.
-	 */
 	#launchText(doc: DocState, blocks: readonly BlockId[], kind: LaunchKind, result: CompileResult): CompileResult {
 		if (result.kind === "Err" || kind === "orchestration") return result;
 		const roots = blocks.flatMap((id) => {
@@ -970,9 +853,6 @@ export class Core implements CoreApi, K1Handler {
 		return roots.length === 0 ? result : { ...result, text: `${result.text}\n\n${launchFooter(this.#store.path(doc.ref), roots)}` };
 	}
 
-	// ============================================================ events
-
-	/** Send an event to the current connection and record it in its document's log (launch-events.md §6). Returns false without a connection. */
 	#send(payload: EventPayload): boolean {
 		if (!this.#conn || this.#conn.session === null) return false;
 		this.#conn.conn.send(payload);
@@ -980,8 +860,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#append(this.#live(keyOfRun(run)), "service", { type: "event_sent", event: payload.event, data: payload.data });
 		return true;
 	}
-
-	// ============================================================ reminders (runs.md §6)
 
 	#scheduleReminder(run: RunId, startup = false): void {
 		const existing = this.#reminders.get(run);
@@ -1017,8 +895,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#writeRunNow(doc);
 		this.#scheduleReminder(doc.run.id);
 	}
-
-	// ============================================================ checks (checks.md)
 
 	async #recomputeChecks(key: DocKey): Promise<void> {
 		const doc = this.#docs.get(key);
@@ -1064,7 +940,6 @@ export class Core implements CoreApi, K1Handler {
 	#version(doc: DocState, blocks: readonly BlockId[], input: CompileInput): string {
 		const contents = doc.contents;
 		const closure = new Map<BlockId, string | null>();
-		// A task contributes its body (as before design blocks existed); a design its kind and both parts.
 		for (const id of this.#refs.closure(blocks, contents)) {
 			const content = contents.get(id);
 			closure.set(id, content === undefined ? null : content.kind === "task" ? content.body : JSON.stringify(content));
@@ -1109,9 +984,6 @@ export class Core implements CoreApi, K1Handler {
 		};
 	}
 
-	// ============================================================ K1 handler
-
-	/** K1: a transport alone does not occupy the coordinator slot; the first valid hello does. */
 	connected(_conn: Connection): void {}
 
 	disconnected(conn: Connection): void {
@@ -1129,8 +1001,6 @@ export class Core implements CoreApi, K1Handler {
 	}
 
 	async handle(conn: Connection, requestId: string, request: Request): Promise<Outcome<unknown>> {
-		// K1 reveal: a viewer asks the document's sole service to show its pane; it never
-		// takes the coordinator slot, so it is answered before admission.
 		if (request.op === "reveal") {
 			const pane = this.#panes.ownPane();
 			if (pane === null)
@@ -1288,7 +1158,6 @@ export class Core implements CoreApi, K1Handler {
 				const held = this.#held(request.args.run, request.args.block);
 				if (!held.ok) return held;
 				const { doc, block } = held.result;
-				// Task bodies are drawn with the same panels as designs, so a panel of either is addressable.
 				const field = coordinatorField(block.content);
 				const replaced = this.#refs.replacePanel(fieldText(block, field)!, request.args.panel, request.args.text);
 				if (!replaced.ok) return fail(replaced.code, replaced.reason);
@@ -1303,7 +1172,6 @@ export class Core implements CoreApi, K1Handler {
 					return fail("UnknownBlock", tr(`Block ${request.args.after} does not exist`, `块 ${request.args.after} 不存在`));
 				const id = this.#allocateBlock(doc.result);
 				const given = request.args.content;
-				// A design block's requirement is the person's; the coordinator only drafts the design.
 				const content: BlockContent = given.kind === "task" ? given : { kind: "design", requirement: "", design: given.design };
 				this.#applyEdit(doc.result, "coordinator", {
 					kind: "insert",
@@ -1352,7 +1220,6 @@ export class Core implements CoreApi, K1Handler {
 				const doc = this.#blocksOf(request.args.run, request.args.blocks);
 				if (!doc.ok) return doc;
 				await this.#ensureFetched(doc.result, request.args.blocks);
-				// A finished Run read back for this request has no findings yet: the ones checks would hold.
 				if (this.#docs.get(keyOf(doc.result.ref)) !== doc.result) {
 					const input = this.#input(doc.result, this.#fetches);
 					for (const id of request.args.blocks)
@@ -1450,9 +1317,6 @@ export class Core implements CoreApi, K1Handler {
 		}
 	}
 
-	// ------------------------------------------------------------ K1 helpers
-
-	/** The document a request names; a finished Run is read back from disk for this request (#26 §2). */
 	#docOf(run: RunId | undefined): Outcome<DocState> {
 		const doc = this.#docs.get(run ?? "template");
 		if (doc) return ok(doc);
@@ -1520,7 +1384,6 @@ export class Core implements CoreApi, K1Handler {
 		if (this.#isFinished(docState)) return fail("RunFinished", tr("Run has finished", "Run 已结束"));
 		for (const id of blocks)
 			if (!this.#block(docState, id)) return fail("UnknownBlock", tr(`Block ${id} does not exist`, `块 ${id} 不存在`));
-		// A disk edit may have switched a block's kind while fetching.
 		const after = this.#rootsError(docState, blocks);
 		if (after) return fail("BadLaunch", after);
 		const kind = this.#launchKind(docState, blocks);
@@ -1563,7 +1426,6 @@ export class Core implements CoreApi, K1Handler {
 		return ok({ launch: id, kind, text: result.text, ...config });
 	}
 
-	/** Why `blocks` cannot be Launch roots: a design or untracked block, or an orchestration block not started alone (README §定义). */
 	#rootsError(doc: DocState, blocks: readonly BlockId[]): string | null {
 		const designs = blocks.filter((id) => this.#block(doc, id)!.content.kind === "design");
 		if (designs.length > 0)
@@ -1586,11 +1448,6 @@ export class Core implements CoreApi, K1Handler {
 		return blocks.some((id) => isOrchestration(this.#block(doc, id)!.content)) ? "orchestration" : "prompt";
 	}
 
-	/**
-	 * Accept the current compile as the Launch's new baseline (launch-events.md §3). Edits made while
-	 * fetching stay dirty and are judged against the new baseline; roots must still form a Launch of
-	 * the same kind. `snapshot` keeps the frozen first compile.
-	 */
 	async #rebase(session: string, id: LaunchId): Promise<Outcome<unknown>> {
 		const owned = this.#owned(session, id);
 		if (!owned.ok) return owned;
@@ -1600,7 +1457,6 @@ export class Core implements CoreApi, K1Handler {
 		const generation = launch.generation;
 		const accepted = this.#editSeq;
 		const fetches = await this.#launchFetches(launch);
-		// The Run may have finished, and left memory, while fetching.
 		const doc = this.#docs.get(key);
 		if (!doc || this.#isFinished(doc)) return fail("RunFinished", tr("Run has finished", "Run 已结束"));
 		if (launch.record.closed !== null) return fail("BadLaunch", tr("Launch is closed", "Launch 已关闭"));
@@ -1656,8 +1512,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#emit(doc.result.ref);
 		return ok(null);
 	}
-
-	// ------------------------------------------------------------ Runs (runs.md)
 
 	#startRun(name: string, updateEvery: number | null): RunId {
 		const template = this.#docs.get("template")!;
@@ -1757,7 +1611,6 @@ export class Core implements CoreApi, K1Handler {
 
 	#snooze(run: RunId, after: number): Outcome<unknown> {
 		const doc = this.#docs.get(run);
-		// A finished Run has no update due.
 		if (!doc?.run || doc.run.updateDue === null)
 			return this.#finished.has(run) || doc?.run
 				? fail("BadValue", tr("There is no update due", "没有待到期的状态更新"))
@@ -1768,8 +1621,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#emit(doc.ref);
 		return ok({ due });
 	}
-
-	// ============================================================ CoreApi (human, K4)
 
 	view(ref: DocRef): DocView {
 		const found = this.#docOf(ref.kind === "template" ? undefined : ref.run);
@@ -1818,17 +1669,11 @@ export class Core implements CoreApi, K1Handler {
 		return this.#conn?.session != null ? this.#conn.agents : { kind: "offline" };
 	}
 
-	/**
-	 * Ask the coordinator which subagents its session can launch; the answer arrives as an `agents` request.
-	 * A coordinator whose omp-playbooks predates this question never answers (an old extension drops the
-	 * frame and reconnects), so the wait for the latest request ends on whichever connection is current.
-	 */
 	requestAgents(): void {
 		const conn = this.#conn;
 		if (!conn || conn.session === null) return;
 		conn.agents = { kind: "pending" };
 		const asked = ++this.#agentsAsked;
-		// A query about the coordinator's session, not a document event: sent without a log entry.
 		conn.conn.send({ event: "agents_requested", data: {} });
 		this.#emit(null);
 		setTimeout(() => {
@@ -1881,7 +1726,6 @@ export class Core implements CoreApi, K1Handler {
 		if (JSON.stringify(previous) !== JSON.stringify(status)) void this.#recomputeChecks(keyOf(ref));
 	}
 
-	/** The document a person changes, or why they cannot: it does not exist, or its Run has finished. */
 	#humanDoc(ref: DocRef): DocState | string {
 		const doc = this.#doc(ref);
 		const finished = doc ? this.#isFinished(doc) : ref.kind === "run" && this.#finished.has(ref.run);
@@ -1896,10 +1740,6 @@ export class Core implements CoreApi, K1Handler {
 		return block ? { doc, block } : tr(`Block ${id} does not exist`, `块 ${id} 不存在`);
 	}
 
-	/**
-	 * A person's change takes back a block the coordinator holds: the lock ends, so the coordinator's
-	 * in-flight `playbook_edit` fails with NotLocked instead of overwriting the person.
-	 */
 	#takeBack(doc: DocState, id: BlockId): void {
 		const lock = doc.locks.get(id);
 		if (lock?.kind !== "coordinator") return;
@@ -1908,7 +1748,6 @@ export class Core implements CoreApi, K1Handler {
 		this.#conn?.conn.send({ event: "interrupted", data: { ...runField(doc), block: id, request: lock.request } });
 	}
 
-	/** The block's progress with `status`, or why a block of its kind cannot have it. */
 	#statusProgress(block: Block, status: Status): Progress | string {
 		if (block.progress.kind === "untracked")
 			return tr(
@@ -1950,7 +1789,6 @@ export class Core implements CoreApi, K1Handler {
 		return null;
 	}
 
-	/** Submit a design change request: journal it, then notify the coordinator. Refused without a coordinator or text. */
 	requestRevision(ref: DocRef, id: BlockId, prompt: string): string | null {
 		const target = this.#humanTarget(ref, id);
 		if (typeof target === "string") return target;
@@ -2027,7 +1865,6 @@ export class Core implements CoreApi, K1Handler {
 		const launches = [...this.#launches.values()]
 			.filter((launch) => keyOfRun(launch.record.run) === key && launch.record.closed === null && launch.record.blocks.includes(id))
 			.map((launch) => ({ id: launch.record.id, agents: launch.record.agents }));
-		// Nothing is executing for this block: the running status is all there is to stop.
 		if (launches.length === 0) return this.setStatus(ref, id, "todo");
 		return this.#send({ event: "stop_requested", data: { ...runField(target.doc), block: id, launches } })
 			? null
@@ -2068,11 +1905,9 @@ export class Core implements CoreApi, K1Handler {
 
 type EditChange =
 	| { readonly kind: "field"; readonly block: BlockId; readonly field: BlockField; readonly text: string }
-	/** A disk edit switched the block's kind: content and progress are replaced whole. */
 	| { readonly kind: "content"; readonly block: BlockId; readonly content: BlockContent; readonly progress: Progress }
 	| { readonly kind: "progress"; readonly block: BlockId; readonly progress: Progress }
 	| { readonly kind: "insert"; readonly after: BlockId | null; readonly block: Block }
 	| { readonly kind: "delete"; readonly block: BlockId }
 	| { readonly kind: "reorder"; readonly order: readonly BlockId[] }
-	/** A task block's execution contract replaced whole. */
 	| { readonly kind: "config"; readonly block: BlockId; readonly config: TaskConfig };

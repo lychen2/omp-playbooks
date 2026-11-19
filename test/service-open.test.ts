@@ -4,8 +4,6 @@ import { dirname, resolve } from "node:path";
 import { IpcServer } from "@oh-my-pi/pi-natives";
 import { documentEndpoint } from "../src/domain/protocol";
 
-// The document service entry, started as the Tern plugin starts it: this file is the only test
-// that runs `main.ts --open` as a program, so it pins the argv contract the Luau plugin passes.
 const ENTRY = resolve(import.meta.dir, "../src/service/main.ts");
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -16,13 +14,11 @@ async function temporaryDirectory(): Promise<string> {
 	cleanup.push(() => rm(dir, { recursive: true, force: true }));
 	return dir;
 }
-/** A Playbook document at its real path, as `main.ts` resolves the argument it is given. */
 async function document(): Promise<string> {
 	const path = `${await temporaryDirectory()}/book.yaml`;
 	await Bun.write(path, "title: Book\nblocks: []\n");
 	return realpath(path);
 }
-/** The `tern` this child finds first: it records the argv of the split and answers with a pane. */
 async function fakeTern(): Promise<{ dir: string; args(): Promise<string[]> }> {
 	const dir = await temporaryDirectory();
 	const capture = `${dir}/args`;
@@ -30,9 +26,7 @@ async function fakeTern(): Promise<{ dir: string; args(): Promise<string[]> }> {
 	await chmod(`${dir}/tern`, 0o755);
 	return { dir, args: async () => (await Bun.file(capture).text()).trim().split("\n") };
 }
-/** Run the service entry with only the fake `tern` added; `OMOMP_LANG=en` fixes the pane command's language. */
 async function run(args: readonly string[], tern: { readonly dir: string }): Promise<{ exitCode: number; stderr: string }> {
-	// Asynchronous so this process's own endpoint listener keeps answering while the child runs.
 	const child = Bun.spawn([process.execPath, ENTRY, ...args], {
 		env: { ...process.env, PATH: `${tern.dir}:${process.env.PATH}`, OMOMP_LANG: "en" },
 		stdout: "ignore",

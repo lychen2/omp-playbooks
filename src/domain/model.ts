@@ -1,11 +1,5 @@
-// Domain model of omp-playbooks. Every type here mirrors a definition in design/.
-// Rules live in the design; comments name the owning section.
-
-/** `b<positive integer>` (README §定义). */
 export type BlockId = `b${number}`;
-/** `r<positive integer>` (runs.md §2). */
 export type RunId = `r${number}`;
-/** `l<positive integer>` (launch-events.md §1). */
 export type LaunchId = `l${number}`;
 
 const BLOCK_ID = /^b([1-9][0-9]*)$/;
@@ -25,31 +19,18 @@ export function idNumber(id: BlockId | RunId | LaunchId): number {
 	return Number(id.slice(1));
 }
 
-/**
- * What a block holds. A task block is a prompt that can run, optionally carrying the execution
- * contract its Launch defaults to (`agent`, `isolated`); a design block pairs the person's
- * requirement with the coordinator's design draft.
- */
 export type BlockContent =
 	| { readonly kind: "task"; readonly body: string; readonly agent?: string; readonly isolated?: boolean }
 	| { readonly kind: "design"; readonly requirement: string; readonly design: string };
 
-/** A task block's execution contract: the coordinator's defaults when it starts the block's Launch. */
 export type TaskConfig = Pick<Extract<BlockContent, { kind: "task" }>, "agent" | "isolated">;
 
-/** Where a tracked block's work stands. A design block is never `running`: it cannot be launched. */
 export type Status = "todo" | "running" | "done";
 
-/**
- * Whether a block counts as a piece of work. A tracked block has a status and, once the subagent that ran
- * it has written one, a completion report; `task: false` in the file declares an untracked task block
- * (an overview, shared rules), which has neither and is left out of the done count.
- */
 export type Progress =
 	| { readonly kind: "untracked" }
 	| { readonly kind: "tracked"; readonly status: Status; readonly report: string | null };
 
-/** A block (README §定义 块). */
 export interface Block {
 	readonly id: BlockId;
 	readonly title: string;
@@ -57,17 +38,13 @@ export interface Block {
 	readonly content: BlockContent;
 }
 
-/** A tracked block's progress reset for a new execution: status todo, no report. */
 export function freshProgress(progress: Progress): Progress {
 	return progress.kind === "untracked" ? progress : { kind: "tracked", status: "todo", report: null };
 }
 
-/** Persisted text fields of a block. `body` exists on task blocks, `requirement` and `design` on design blocks. */
 export type BlockField = "title" | "body" | "requirement" | "design";
-/** Fields a person writes directly; a design is the coordinator's and changes through a change request. */
 export type HumanField = "title" | "body" | "requirement";
 
-/** The text of `field` on `block`, or null when the block's kind has no such field. */
 export function fieldText(block: Block, field: BlockField): string | null {
 	if (field === "title") return block.title;
 	const content = block.content;
@@ -79,7 +56,6 @@ export function fieldText(block: Block, field: BlockField): string | null {
 	}
 }
 
-/** `block` with `field` set to `text`, or null when the block's kind has no such field. */
 export function withField(block: Block, field: BlockField, text: string): Block | null {
 	if (field === "title") return { ...block, title: text };
 	const content = block.content;
@@ -93,27 +69,19 @@ export function withField(block: Block, field: BlockField, text: string): Block 
 	}
 }
 
-/** The field the coordinator writes as a block's main text: a task's body, a design's draft. */
 export function coordinatorField(content: BlockContent): "body" | "design" {
 	return content.kind === "task" ? "body" : "design";
 }
 
-/** Orchestration block: a task block whose whole body is one `js` or `py` fenced code block (README §定义). */
 export function isOrchestration(content: BlockContent): boolean {
 	if (content.kind !== "task") return false;
 	return /^(`{3,}|~{3,})(js|py)[ \t]*\n[\s\S]*?\n\1[ \t]*\n?$/.test(`${content.body.trim()}\n`);
 }
 
-/**
- * The text a card presents to a person as its substance, which is written as Where/What/How:
- * a task's body or a design's draft. An orchestration block is code and has none; the person's
- * own requirement and a completion report are not it.
- */
 export function outlinedText(content: BlockContent): string | null {
 	return isOrchestration(content) ? null : content.kind === "task" ? content.body : content.design;
 }
 
-/** Whether a person may write `field` on a block of this kind. */
 export function humanFieldValid(content: BlockContent, field: HumanField): boolean {
 	switch (field) {
 		case "title":
@@ -125,7 +93,6 @@ export function humanFieldValid(content: BlockContent, field: HumanField): boole
 	}
 }
 
-/** One submitted change request for a design block (append-only, one journal per document). */
 export interface Revision {
 	readonly seq: number;
 	readonly at: number;
@@ -133,7 +100,6 @@ export interface Revision {
 	readonly prompt: string;
 }
 
-/** The serialized Playbook document (README §S2). */
 export interface PlaybookDoc {
 	readonly title: string;
 	readonly blocks: readonly Block[];
@@ -141,32 +107,23 @@ export interface PlaybookDoc {
 
 export type RunStatus = "running" | "finished";
 
-/** The `run` mapping of a Run file (runs.md §1, §6). Times are epoch milliseconds. */
 export interface RunMeta {
 	readonly id: RunId;
 	readonly name: string;
 	readonly status: RunStatus;
 	readonly startedAt: number;
 	readonly finishedAt: number | null;
-	/** Seconds, or null when the Run has no status-update reminder. */
 	readonly updateEvery: number | null;
 	readonly updateDue: number | null;
 }
 
-/** A document the service holds: the template or one Run. */
 export type DocRef = { readonly kind: "template" } | { readonly kind: "run"; readonly run: RunId };
 
-/** Who applied an edit (launch-events.md §3). */
 export type EditOrigin = "human" | "coordinator" | "disk";
-/** Timeline entry origin (runs.md §3). */
 export type EntryOrigin = EditOrigin | "service";
 
-/** Block lock (README §定义 块锁): the coordinator holds a block for the length of one `playbook_edit` call. */
 export type BlockLock = { readonly kind: "none" } | { readonly kind: "coordinator"; readonly request: string };
 
-// ---------------------------------------------------------------- references
-
-/** Target kinds (references.md §2). */
 export type Target =
 	| { readonly kind: "block"; readonly block: BlockId }
 	| { readonly kind: "result"; readonly block: BlockId }
@@ -176,7 +133,6 @@ export type Target =
 
 export type ExternalTarget = Extract<Target, { kind: "issue" | "pull" | "file" }>;
 
-/** Selectors of a slice expression (references.md §3). */
 export type Selector =
 	| { readonly kind: "lines"; readonly from: number; readonly to: number }
 	| { readonly kind: "section"; readonly heading: string }
@@ -185,28 +141,17 @@ export type Selector =
 	| { readonly kind: "comments" }
 	| { readonly kind: "commentsLast"; readonly count: number }
 	| { readonly kind: "commentsRange"; readonly from: number; readonly to: number }
-	/** Design blocks only: the person's requirement, the whole draft, or one panel by its written letter ID. */
 	| { readonly kind: "requirement" }
 	| { readonly kind: "design" }
 	| { readonly kind: "panel"; readonly id: string };
 
-/** One `((target))` or `((target | expression))` occurrence in a block body. */
 export interface Reference {
-	/** Exact source text including the parentheses. */
 	readonly text: string;
-	/** Raw target text as written. */
 	readonly targetText: string;
-	/** Raw expression text, or null when absent. */
 	readonly expressionText: string | null;
-	/** UTF-16 offset of the reference in the body. */
 	readonly offset: number;
 }
 
-/**
- * A reference's expression split at its boundary: `as("…")` names the link the pane draws and never
- * reaches compilation; the selectors pick content, and `selection` is their source text (the
- * expression without `as(…)`), null when there is none.
- */
 export interface ReferenceExpression {
 	readonly alias: string | null;
 	readonly selectors: readonly Selector[];
@@ -224,7 +169,6 @@ export interface IssueValue {
 	readonly comments: readonly IssueComment[];
 }
 
-/** Result of fetching one external target (references.md §5, contracts.md K3). */
 export type FetchOutcome =
 	| {
 			readonly ok: true;
@@ -233,11 +177,9 @@ export type FetchOutcome =
 	  }
 	| { readonly ok: false; readonly at: number; readonly error: string };
 
-/** Key of a fetch table: the canonical target text. */
 export type TargetKey = string;
 export type FetchTable = ReadonlyMap<TargetKey, FetchOutcome>;
 
-/** One entry of the block result table (references.md §4). */
 export interface BlockResult {
 	readonly text: string;
 	readonly at: number;
@@ -247,7 +189,6 @@ export interface BlockResult {
 }
 export type ResultTable = ReadonlyMap<BlockId, BlockResult>;
 
-/** Compile errors (references.md §4), closed. */
 export type CompileError =
 	| { readonly kind: "UnknownBlock"; readonly block: BlockId; readonly at: ErrorSite }
 	| { readonly kind: "UnknownTarget"; readonly at: ErrorSite }
@@ -256,7 +197,6 @@ export type CompileError =
 	| { readonly kind: "TooDeep"; readonly at: ErrorSite }
 	| { readonly kind: "NoResult"; readonly block: BlockId; readonly at: ErrorSite }
 	| { readonly kind: "FetchFailed"; readonly target: TargetKey; readonly error: string; readonly at: ErrorSite }
-	/** `{{block.slot}}` where `block` does not exist or declares no `slot`; `at.reference` is the use. */
 	| { readonly kind: "UnknownSlot"; readonly block: BlockId; readonly slot: string; readonly at: ErrorSite };
 
 export interface ErrorSite {
@@ -280,14 +220,11 @@ export type CompileResult =
 	| { readonly kind: "Ok"; readonly text: string; readonly sources: readonly Source[] }
 	| { readonly kind: "Err"; readonly error: CompileError };
 
-/** Input the pure compiler reads (references.md §4). */
 export interface CompileInput {
 	readonly blocks: ReadonlyMap<BlockId, BlockContent>;
 	readonly fetches: FetchTable;
 	readonly results: ResultTable;
 }
-
-// ---------------------------------------------------------------- launches
 
 export type LaunchKind = "prompt" | "orchestration";
 
@@ -299,7 +236,6 @@ export interface PendingEvent {
 	readonly result: CompileResult;
 }
 
-/** Launch record (launch-events.md §1). `run` is null for a Launch of the template. */
 export interface Launch {
 	readonly id: LaunchId;
 	readonly run: RunId | null;
@@ -314,31 +250,25 @@ export interface Launch {
 	readonly agents: readonly string[];
 	readonly baselines: readonly string[];
 	readonly notified: CompileResult | null;
-	/** Block id → sequence number of its latest human/disk edit. */
 	readonly dirty: readonly (readonly [BlockId, number])[];
 	readonly fetches: readonly (readonly [TargetKey, FetchOutcome])[];
 	readonly closed: { readonly at: number; readonly by: LaunchCloser } | null;
 }
 
-// ---------------------------------------------------------------- timeline
-
 export type RecordKind = "update" | "result" | "failure" | "retrospective";
 
-/** Timeline entry payloads (runs.md §3), closed. */
 export type EntryData =
 	| { readonly type: "run_started"; readonly name: string }
 	| { readonly type: "run_finished" }
 	| { readonly type: "block_edited"; readonly block: BlockId; readonly field: BlockField; readonly text: string; readonly edit: number }
 	| { readonly type: "block_added"; readonly block: BlockId; readonly title: string; readonly content: BlockContent }
 	| { readonly type: "block_deleted"; readonly block: BlockId; readonly title: string; readonly content: BlockContent }
-	/** A disk edit switched the block between task and design, or a task block's execution contract changed. */
 	| { readonly type: "content_replaced"; readonly block: BlockId; readonly content: BlockContent }
 	| { readonly type: "blocks_reordered"; readonly order: readonly BlockId[] }
 	| { readonly type: "progress_changed"; readonly block: BlockId; readonly progress: Progress }
 	| { readonly type: "launch_created"; readonly launch: LaunchId; readonly kind: LaunchKind; readonly blocks: readonly BlockId[] }
 	| { readonly type: "agent_bound"; readonly launch: LaunchId; readonly agent: string }
 	| { readonly type: "launch_closed"; readonly launch: LaunchId }
-	/** An event as it was sent; the name stays as written then, also for events since retired. */
 	| { readonly type: "event_sent"; readonly event: string; readonly data: unknown }
 	| { readonly type: "interrupted"; readonly block: BlockId; readonly request: string }
 	| { readonly type: "check_reported"; readonly blocks: readonly BlockId[]; readonly version: string; readonly result: JudgeReport }
@@ -361,16 +291,12 @@ export interface TimelineEntry {
 	readonly data: EntryData;
 }
 
-// ---------------------------------------------------------------- checks
-
 export type JudgeReport =
 	| { readonly kind: "answers"; readonly answers: Readonly<Record<string, number>> }
 	| { readonly kind: "judge_unavailable" };
 
 export type FindingName = "compile" | "empty_expansion" | "render_error" | "render_pending" | "draft" | "outline";
 export type Findings = Readonly<Record<FindingName, boolean>>; // true = fails
-
-// ---------------------------------------------------------------- events (K1)
 
 export type EventName =
 	| "block_changed"
@@ -382,13 +308,8 @@ export type EventName =
 	| "revision_requested"
 	| "agents_requested";
 
-/**
- * The subagent types the coordinator's omp session can launch, as the coordinator last answered.
- * omp owns the list and decides again at launch; the service only shows the answer to its request.
- */
 export type AgentList =
 	| { readonly kind: "offline" }
-	/** Connected, but no dropdown has asked yet. */
 	| { readonly kind: "unasked" }
 	| { readonly kind: "pending" }
 	| { readonly kind: "listed"; readonly names: readonly string[] }

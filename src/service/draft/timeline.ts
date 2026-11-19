@@ -10,7 +10,6 @@ interface TimelineItem {
 	readonly highlight: boolean;
 }
 
-/** `timeline [h|v]`: ordered `time | title | note` events; `*time` highlights an event. */
 export interface TimelineSpec {
 	readonly direction: "horizontal" | "vertical";
 	readonly items: readonly TimelineItem[];
@@ -57,8 +56,6 @@ export function parseTimeline(input: FenceInput): Parsed<TimelineSpec> {
 	return { ok: true, value: { direction: vertical ? "vertical" : "horizontal", items }, diagnostics };
 }
 
-// The shared word wrapper preserves long unspaced words. Split only those overflowing
-// lines locally so URLs/identifiers, like CJK labels, stay inside their timeline cell.
 function labelLines(text: string, width: number, fontSize: number): string[] {
 	return wrapText(text, width, fontSize).flatMap((line) => {
 		if (textWidth(line, fontSize) <= width) return [line];

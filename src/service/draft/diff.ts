@@ -3,7 +3,6 @@ import { findSecret } from "./code";
 import { type DraftDiagnostic, diagnostic, type FenceInput, type Parsed, type RenderContext, type Rendered } from "./contract";
 
 export interface DiffSpec {
-	/** Diff body without non-drawn git metadata; blank context lines are preserved. */
 	readonly text: string;
 	readonly lineCount: number;
 	readonly file: string;
@@ -270,7 +269,6 @@ export function parseDiff(input: FenceInput): Parsed<DiffSpec> {
 				);
 				continue;
 			}
-			// At most 200 body lines exist. Stop at the first missing number rather than expanding arbitrary ranges.
 			for (let number = from; number <= to; number++) {
 				if (!newLines.has(number)) {
 					fail(

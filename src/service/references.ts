@@ -22,7 +22,6 @@ type Span = { start: number; end: number };
 type Selection = { ok: true; text: string } | { ok: false; reason: string };
 type ParsedExpression = { ok: true; value: ReferenceExpression } | { ok: false; reason: string };
 
-/** Fence spans include their delimiter lines, and an unclosed fence extends to EOF. */
 function fenceSpans(body: string): Span[] {
 	const spans: Span[] = [];
 	let fence: { character: string; length: number; start: number } | null = null;
@@ -259,13 +258,10 @@ function parseExpression(expression: string | null): ParsedExpression {
 					selectors.push({ kind: "section", heading });
 					continue;
 				}
-			} catch {
-				/* Malformed quoted titles are expression errors. */
-			}
+			} catch {}
 		}
 		return { ok: false, reason: tr(`Unknown selector: ${token}`, `未知选择器：${token}`) };
 	}
-	// Without an alias the selection is the expression as written, so existing sources keep their text.
 	const selection = alias === null ? expression : picks.length > 0 ? picks.join(", ") : null;
 	return { ok: true, value: { alias, selectors, selection } };
 }
@@ -368,22 +364,12 @@ function selectIssue(issue: IssueValue, selectors: readonly Selector[]): Selecti
 	return { ok: true, text: selected.join("\n\n") };
 }
 
-/**
- * References a block's content takes part in: a task body's, read with its slots as their values as
- * the compiler reads it (a slot's value may hold a reference); a design is an opaque leaf.
- */
 function referencesOf(content: BlockContent | undefined, table: SlotTable): Reference[] {
 	if (content?.kind !== "task") return [];
 	const resolved = resolveSlots(content.body, table);
 	return parseReferences(resolved.ok ? resolved.text : content.body);
 }
 
-/**
- * The blocks `roots` compile from. Expanded blocks are the roots and the blocks their task bodies
- * reference: their references and `{{bN.name}}` uses are followed. A block reached only by a
- * `{{bN.name}}` is a leaf: only its slot's value is read, so nothing of it is followed. Missing ids
- * are kept, so a block added later changes the closure.
- */
 function reach(
 	roots: readonly BlockId[],
 	contents: ReadonlyMap<BlockId, BlockContent>,
@@ -437,12 +423,9 @@ function resultTargets(roots: readonly BlockId[], contents: ReadonlyMap<BlockId,
 	return [...targets];
 }
 
-/** A design's two texts with their slots already read as their values. */
 type DesignText = { readonly requirement: string; readonly design: string };
 
-/** A design block as prompt text: both parts by default, or what `selectors` pick (requirement, design, panels). */
 function selectDesign(content: DesignText, selectors: readonly Selector[]): Selection {
-	// An empty requirement is not a requirement: the agent gets no empty <requirement> element.
 	if (selectors.length === 0)
 		return {
 			ok: true,
@@ -488,7 +471,6 @@ function compiler(input: CompileInput) {
 	const table = slotTable(input.blocks);
 	const badExpression = (at: ErrorSite, reason: string): CompileResult => ({ kind: "Err", error: { kind: "BadExpression", reason, at } });
 	type Resolved<T> = ({ ok: true } & T) | { ok: false; error: CompileResult };
-	/** `text` of `block` with its slots read as their values; a `{{bN.name}}` that reaches no slot fails here. */
 	function resolve(block: BlockId, text: string): Resolved<{ text: string }> {
 		const resolved = resolveSlots(text, table);
 		return resolved.ok
@@ -631,7 +613,6 @@ function expandOne(block: BlockId, reference: Reference, input: CompileInput): C
 	return compiler(input).expand(block, reference, [block]);
 }
 
-// Hirschberg's LCS keeps diff memory linear instead of allocating an n*m matrix.
 type DiffLine = { text: string; newline: boolean };
 type DiffOperation = { kind: " " | "-" | "+"; line: DiffLine };
 function diffLines(text: string): DiffLine[] {
