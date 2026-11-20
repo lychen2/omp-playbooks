@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { availableAgents, type ToolDescription } from "../src/extension/agents";
 
-const task = (description: string, source = "builtin"): ToolDescription => ({ name: "task", description, sourceInfo: { source } });
+const task = (description: string, source = "builtin"): ToolDescription => ({
+	name: "task",
+	description,
+	sourceInfo: { source, path: `<builtin:task>`, scope: "temporary", origin: "package" },
+});
 const rendered = [
 	"Spawn subagents.",
 	"# Available Agents",

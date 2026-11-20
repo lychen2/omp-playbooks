@@ -1,11 +1,8 @@
+import type { ToolInfo } from "@oh-my-pi/pi-coding-agent";
 import { tr } from "../../omomp-shared/i18n";
 import type { AgentAnswer } from "../domain/protocol";
 
-export interface ToolDescription {
-	readonly name: string;
-	readonly description: string;
-	readonly sourceInfo: { readonly source: string };
-}
+export type ToolDescription = Pick<ToolInfo, "name" | "description" | "sourceInfo">;
 
 const HEADING = "# Available Agents";
 

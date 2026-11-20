@@ -4,7 +4,17 @@ import { existsSync, watch } from "node:fs";
 import { chmod, mkdtemp, realpath, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z as zod } from "@oh-my-pi/omptype/zod";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import type {
+	AgentToolResult,
+	EvalToolParams,
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	SessionEntry,
+	SessionMessageEntry,
+	ToolCallEventResult,
+	ToolDefinition,
+} from "@oh-my-pi/pi-coding-agent";
 import { type IpcConnection, IpcServer } from "@oh-my-pi/pi-natives";
 import { defaultFormData, type HtmlFormData } from "@oh-my-pi/pi-tui/html-form/data";
 import { parseHtmlForm, spansText } from "@oh-my-pi/pi-tui/html-form/parse";
@@ -170,25 +180,53 @@ async function service(pane: string | undefined = "document-pane", existingDoc?:
 	};
 }
 
-type TextPart = { type: "text"; text: string } | { type: "thinking"; thinking: string };
-type Entry =
-	| { type: "message"; id: string; message: { role: "user" | "assistant" | "toolResult"; content: string | TextPart[] } }
-	| { type: "custom"; id: string };
-type ToolResult = { content: { type: string; text?: string }[]; isError?: boolean };
-type Tool = {
-	name: string;
-	description: string;
-	docTopics(): Readonly<Record<string, string>>;
+type Message = Extract<SessionMessageEntry["message"], { role: string }>;
+type Assistant = Extract<Message, { role: "assistant" }>;
+type TextPart = Extract<Assistant["content"][number], { type: "text" | "thinking" }>;
+type Tool = Omit<ToolDefinition, "parameters"> & {
 	parameters: { parse(value: unknown): unknown };
-	execute(id: string, params: unknown, signal: undefined, update: undefined, ctx: ExtensionContext): Promise<ToolResult>;
+	docTopics(): Readonly<Record<string, string>>;
 };
-type ToolCallResult =
-	| { input: { language: "js" | "py"; code: string; title?: string; timeout?: number; reset?: boolean } }
-	| { block: true; reason: string }
-	| undefined;
+type ToolCallResult = (Omit<ToolCallEventResult, "input"> & { input?: EvalToolParams }) | undefined;
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>;
+const USAGE: Assistant["usage"] = {
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	totalTokens: 0,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+function entryFields(): Pick<SessionEntry, "parentId" | "timestamp"> {
+	return { parentId: null, timestamp: new Date(0).toISOString() };
+}
+function userEntry(id: string, content: Extract<Message, { role: "user" }>["content"]): SessionEntry {
+	return { type: "message", id, ...entryFields(), message: { role: "user", content, timestamp: 0 } };
+}
+function assistantEntry(id: string, content: TextPart[]): SessionEntry {
+	return {
+		type: "message",
+		id,
+		...entryFields(),
+		message: {
+			role: "assistant",
+			content,
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "test",
+			usage: USAGE,
+			stopReason: "stop",
+			timestamp: 0,
+		},
+	};
+}
+function resultText(result: AgentToolResult): string {
+	const part = result.content[0];
+	if (part?.type !== "text") throw new Error("expected a text result");
+	return part.text;
+}
 async function harness(kind: "main" | "sub" = "main") {
-	const tools = new Map<string, Tool & { loadMode?: string; defaultInactive?: boolean }>();
+	const tools = new Map<string, Tool>();
 	const handlers = new Map<string, Handler>();
 	const commands = new Map<string, { handler(args: string, ctx: ExtensionCommandContext): Promise<void> }>();
 	const messages: { message: { customType: string; content: string; display: boolean }; options: unknown }[] = [];
@@ -219,20 +257,13 @@ async function harness(kind: "main" | "sub" = "main") {
 		},
 		formDialog: formDialog as typeof formDialog | undefined,
 	};
-	let branch: Entry[] = [
-		{ type: "message", id: "user-1", message: { role: "user", content: "USER" } },
-		{
-			type: "message",
-			id: "assistant-1",
-			message: {
-				role: "assistant",
-				content: [
-					{ type: "text", text: "FULL FIRST" },
-					{ type: "thinking", thinking: "NO" },
-					{ type: "text", text: "FULL SECOND" },
-				],
-			},
-		},
+	let branch: SessionEntry[] = [
+		userEntry("user-1", "USER"),
+		assistantEntry("assistant-1", [
+			{ type: "text", text: "FULL FIRST" },
+			{ type: "thinking", thinking: "NO" },
+			{ type: "text", text: "FULL SECOND" },
+		]),
 	];
 	const ctx = {
 		agent: { kind },
@@ -247,7 +278,7 @@ async function harness(kind: "main" | "sub" = "main") {
 	const warnings: string[] = [];
 	const api = {
 		zod,
-		registerTool: (value: Tool & { loadMode?: string; defaultInactive?: boolean }) => {
+		registerTool: (value: Tool) => {
 			tools.set(value.name, value);
 		},
 		getAllTools: () => [...tools.keys()].map((name) => ({ name, sourceInfo: { source: "extension" } })),
@@ -306,7 +337,7 @@ async function harness(kind: "main" | "sub" = "main") {
 			waiting.push(next.resolve);
 			return next.promise;
 		},
-		set branch(value: Entry[]) {
+		set branch(value: SessionEntry[]) {
 			branch = value;
 		},
 		set formHook(value: typeof formHook) {
@@ -421,7 +452,7 @@ test("a call whose parameters do not parse fails as BadValue, not NoService, bef
 	await h.execute("playbook_open", { doc: s.doc });
 	const result = await h.execute("playbook_read", { doc: s.doc, op: "read", after: 3 });
 	expect(result.isError).toBe(true);
-	expect(JSON.parse(result.content[0]!.text!).error.code).toBe("BadValue");
+	expect(JSON.parse(resultText(result)).error.code).toBe("BadValue");
 	expect(s.frames.map((frame) => frame.op)).toEqual(["hello"]);
 });
 
@@ -453,7 +484,7 @@ test("playbook_read accepts task blocks carrying agent and isolated", async () =
 	await h.execute("playbook_open", { doc: s.doc });
 	const result = await h.execute("playbook_read", { doc: s.doc });
 	expect(result.isError).toBe(false);
-	expect(JSON.parse(result.content[0]!.text!)).toEqual({ title: "Book", blocks: [configured] });
+	expect(JSON.parse(resultText(result))).toEqual({ title: "Book", blocks: [configured] });
 });
 
 test("interruption revokes an in-flight edit without aborting the coordinator; Locked never sends a mutation", async () => {
@@ -470,7 +501,7 @@ test("interruption revokes an in-flight edit without aborting the coordinator; L
 	};
 	const changed = await h.execute("playbook_edit", { op: "title", run: "r1", block: "b1", title: "New" });
 	expect(changed.isError).toBe(true);
-	expect(structuredClone(JSON.parse(changed.content[0]!.text!).error)).toMatchObject({
+	expect(structuredClone(JSON.parse(resultText(changed)).error)).toMatchObject({
 		code: "NotLocked",
 		message: expect.stringContaining("人在变更生效前通过打断收回了此块"),
 	});
@@ -482,7 +513,7 @@ test("interruption revokes an in-flight edit without aborting the coordinator; L
 			JSON.stringify({ id: frame.id, ok: false, error: { code: "Locked", message: "human editing", detail: { block: "b1" } } }),
 		);
 	const locked = await h.execute("playbook_edit", { op: "delete", block: "b1" });
-	expect(JSON.parse(locked.content[0]!.text!)).toEqual({ error: { code: "Locked", message: "human editing", detail: { block: "b1" } } });
+	expect(JSON.parse(resultText(locked))).toEqual({ error: { code: "Locked", message: "human editing", detail: { block: "b1" } } });
 	expect(s.frames.map((frame) => frame.op)).toEqual(["hello", "lock", "set", "unlock", "lock"]);
 });
 
@@ -642,13 +673,7 @@ test("add asks two forms (message, log and kind, then block) and writes full tex
 test("add shows message text as label text: markup characters are not parsed as HTML", async () => {
 	const s = await service();
 	const h = await harness();
-	h.branch = [
-		{
-			type: "message",
-			id: "assistant-1",
-			message: { role: "assistant", content: [{ type: "text", text: 'FULL <FIRST> & "SECOND"' }] },
-		},
-	];
+	h.branch = [assistantEntry("assistant-1", [{ type: "text", text: 'FULL <FIRST> & "SECOND"' }])];
 	h.answers.push(choose("assistant-1", "playbook", "update"));
 	await h.command("playbook-add", s.doc);
 	expect(optionsOf(h.forms[0]!, "message")).toEqual(['assistant-1: FULL <FIRST> & "SECOND"']);
@@ -704,17 +729,26 @@ test("show calls a real tern child with the hello pane unchanged; add offers lat
 	expect(s.frames[0]).toMatchObject({ args: { pane } });
 	h.branch = Array.from(
 		{ length: 25 },
-		(_, i): Entry => ({
-			type: "message",
-			id: `message-${i}`,
-			message: { role: i % 2 ? "user" : "assistant", content: [{ type: "text", text: `text-${i}` }] },
-		}),
+		(_, i): SessionEntry =>
+			i % 2 ? userEntry(`message-${i}`, `text-${i}`) : assistantEntry(`message-${i}`, [{ type: "text", text: `text-${i}` }]),
 	);
 	h.branch = [
-		...(h.ctx.sessionManager.getBranch() as unknown as Entry[]),
-		{ type: "custom", id: "custom" },
-		{ type: "message", id: "empty", message: { role: "user", content: "" } },
-		{ type: "message", id: "tool", message: { role: "toolResult", content: "ignore" } },
+		...h.ctx.sessionManager.getBranch(),
+		{ type: "custom", id: "custom", ...entryFields(), customType: "test" },
+		userEntry("empty", ""),
+		{
+			type: "message",
+			id: "tool",
+			...entryFields(),
+			message: {
+				role: "toolResult",
+				toolCallId: "call-1",
+				toolName: "eval",
+				content: [{ type: "text", text: "ignore" }],
+				isError: false,
+				timestamp: 0,
+			},
+		},
 	];
 	h.answers.push(null);
 	await h.command("playbook-add");
@@ -736,7 +770,7 @@ test("open starts the document service beside the coordinator pane and returns h
 	const s = await service("document-pane", doc);
 	const result = await opening;
 	expect(result.isError).toBe(false);
-	expect(JSON.parse(result.content[0]!.text!)).toMatchObject({ blocks: ["b1"], pane: "document-pane" });
+	expect(JSON.parse(resultText(result))).toMatchObject({ blocks: ["b1"], pane: "document-pane" });
 	const real = await realpath(doc);
 	expect(await tern.args()).toEqual([
 		"split",
@@ -1013,7 +1047,7 @@ test("in-flight disconnect is Disconnected; automatic reconnect sends only hello
 test("tool calls require an unambiguous connected document when doc is omitted", async () => {
 	const h = await harness();
 	const none = await h.execute("playbook_read", {});
-	expect(JSON.parse(none.content[0]!.text!).error.code).toBe("NoService");
+	expect(JSON.parse(resultText(none)).error.code).toBe("NoService");
 	const a = await service();
 	const b = await service();
 	await h.execute("playbook_open", { doc: a.doc });
@@ -1023,7 +1057,7 @@ test("tool calls require an unambiguous connected document when doc is omitted",
 	await h.execute("playbook_open", { doc: b.doc });
 	const counts = [a.frames.length, b.frames.length];
 	const ambiguous = await h.execute("playbook_read", {});
-	expect(JSON.parse(ambiguous.content[0]!.text!).error.code).toBe("NoService");
+	expect(JSON.parse(resultText(ambiguous)).error.code).toBe("NoService");
 	expect([a.frames.length, b.frames.length]).toEqual(counts);
 	await h.execute("playbook_read", { doc: b.doc });
 	expect(b.frames.at(-1)).toMatchObject({ op: "read", args: {} });
@@ -1190,7 +1224,7 @@ test("exec runs the latest rebased orchestration code, not the frozen snapshot",
 			baselines: [first, rebased],
 		});
 	const rewritten = await h.call({ language: "js", code: 'await playbook.exec("l1")' });
-	if (!rewritten || !("input" in rewritten)) throw new Error("exec was not rewritten");
+	if (rewritten?.input === undefined) throw new Error("exec was not rewritten");
 	expect(rewritten.input.code).toEndWith('return "rebased";');
 });
 
@@ -1237,7 +1271,7 @@ for (const language of ["js", "py"] as const) {
 			reset: true,
 		});
 		expect(rewritten).toBeDefined();
-		if (!rewritten || !("input" in rewritten)) throw new Error("exec was not rewritten");
+		if (rewritten?.input === undefined) throw new Error("exec was not rewritten");
 		expect(rewritten.input).toMatchObject({ language, title: "Execute", timeout: 0, reset: true });
 		expect(s.frames.at(-1)).toMatchObject({ op: "launch_info", args: { launch: "l1" } });
 		if (language === "js") {
@@ -1307,7 +1341,7 @@ for (const helper of ["run", "agent", "result", "spawn", "post", "timeline", "re
 		const h = await harness();
 		const code = helper === "context" ? "return playbook.context;" : `await playbook.${helper}({});`;
 		const rewritten = await h.call({ language: "js", code });
-		if (!rewritten || !("input" in rewritten)) throw new Error("helper was not rewritten");
+		if (rewritten?.input === undefined) throw new Error("helper was not rewritten");
 		expect(rewritten.input.code).toEndWith(code);
 		expect(rewritten.input.timeout).toBe(helper === "run" || helper === "result" ? 0 : undefined);
 		expect(await h.call(rewritten.input)).toBeUndefined();
@@ -1342,13 +1376,13 @@ test("eval prelude binds through the registered strict Launch tool before waitin
 					: undefined,
 		);
 	const rewritten = await h.call({ language: "js", code: 'return await playbook.run({run:"r1", blocks:["b1"]});' });
-	if (!rewritten || !("input" in rewritten)) throw new Error("run was not rewritten");
+	if (rewritten?.input === undefined) throw new Error("run was not rewritten");
 	const tool: Record<string, (params: Record<string, unknown>) => Promise<string>> = {};
 	for (const name of ["playbook_launch", "playbook_timeline"])
 		tool[name] = async (params) => {
 			h.tools.get(name)!.parameters.parse(params);
 			const result = await h.execute(name, params);
-			return result.content[0]!.text!;
+			return resultText(result);
 		};
 	const execute = new (Object.getPrototypeOf(async () => {}).constructor)("tool", "agent", rewritten.input.code) as (
 		tools: Record<string, (params: Record<string, unknown>) => Promise<string>>,
@@ -1383,7 +1417,7 @@ test("a rejected edit still releases its lock and the next call receives a fresh
 		else respond(connection, frame, frame.op === "lock" ? { block } : undefined);
 	};
 	const rejected = await h.execute("playbook_edit", { op: "replace", block: "b1", find: "Body", replace: "New" });
-	expect(JSON.parse(rejected.content[0]!.text!)).toEqual({ error: { code: "BadValue", message: "find is not unique" } });
+	expect(JSON.parse(resultText(rejected))).toEqual({ error: { code: "BadValue", message: "find is not unique" } });
 	await h.execute("playbook_edit", { op: "status", block: "b1", status: "done" });
 	expect(s.frames.map((frame) => frame.op)).toEqual(["hello", "lock", "edit", "unlock", "lock", "set", "unlock"]);
 	expect(s.frames[1]!.args).toEqual({ block: "b1" });
@@ -1400,7 +1434,7 @@ test("playbook_timeline read forwards after and limit to the K1 request", async 
 	const result = await h.execute("playbook_timeline", { doc: s.doc, op: "read", run: "r1", after: 6, limit: 200 });
 	expect(result.isError).toBe(false);
 	expect(s.frames.at(-1)).toMatchObject({ op: "timeline", args: { run: "r1", after: 6, limit: 200 } });
-	expect(result.content[0]!.text).toBe('{"entries":[{"seq":7}],"next_after":7}');
+	expect(resultText(result)).toBe('{"entries":[{"seq":7}],"next_after":7}');
 });
 
 test("tool output passes the reply's serialized result through byte-identically, canonical or not", async () => {
@@ -1410,7 +1444,7 @@ test("tool output passes the reply's serialized result through byte-identically,
 	s.handler = (frame, connection) => connection.send(`{"id":${JSON.stringify(frame.id)},"ok":true,"result":{ "entries" : [{"seq":9}] }}`);
 	const result = await h.execute("playbook_timeline", { doc: s.doc, op: "read" });
 	expect(result.isError).toBe(false);
-	expect(result.content[0]!.text).toBe('{ "entries" : [{"seq":9}] }');
+	expect(resultText(result)).toBe('{ "entries" : [{"seq":9}] }');
 });
 
 test("a large reply frame far above the host's write high-water mark reassembles", async () => {
@@ -1421,7 +1455,7 @@ test("a large reply frame far above the host's write high-water mark reassembles
 	s.handler = (frame, connection) => connection.send(JSON.stringify({ id: frame.id, ok: true, result: { entries: [{ seq: 1, text }] } }));
 	const result = await h.execute("playbook_timeline", { doc: s.doc, op: "read" });
 	expect(result.isError).toBe(false);
-	expect(result.content[0]!.text).toBe(JSON.stringify({ entries: [{ seq: 1, text }] }));
+	expect(resultText(result)).toBe(JSON.stringify({ entries: [{ seq: 1, text }] }));
 });
 
 test("a bad reply line closes the connection and in-flight requests fail Disconnected", async () => {
@@ -1431,6 +1465,6 @@ test("a bad reply line closes the connection and in-flight requests fail Disconn
 	s.handler = (_frame, connection) => connection.send("not-json");
 	const result = await h.execute("playbook_timeline", { doc: s.doc, op: "read" });
 	expect(result.isError).toBe(true);
-	expect(JSON.parse(result.content[0]!.text!)).toMatchObject({ error: { code: "Disconnected" } });
+	expect(JSON.parse(resultText(result))).toMatchObject({ error: { code: "Disconnected" } });
 	expect(s.frames.at(-1)!.op).toBe("timeline");
 });

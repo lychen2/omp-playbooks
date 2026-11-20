@@ -1,4 +1,5 @@
 import type * as zod from "@oh-my-pi/omptype/zod";
+import type { EvalToolParams } from "@oh-my-pi/pi-coding-agent";
 import { tr } from "../../omomp-shared/i18n";
 import { parseBlockId, parseLaunchId, parseRunId } from "../domain/model";
 
@@ -177,7 +178,7 @@ export function toolParameters(z: Zod) {
 		snapshot: z.object({ result: z.object({ text: z.string() }) }),
 		baselines: z.array(z.string()).optional(),
 	});
-	const evalInput = z.object({
+	const evalInput: zod.ZodLikeSchema<EvalToolParams> = z.object({
 		language: z.enum(["js", "py"]),
 		code: z.string(),
 		title: z.string().optional(),

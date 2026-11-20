@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@oh-my-pi/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 import { ptree } from "@oh-my-pi/pi-utils";
 import { tr } from "../../omomp-shared/i18n";
 import { type BlockId, parseLaunchId, type RecordKind, type RunId } from "../domain/model";
@@ -251,8 +251,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
 	const scoped = (value: RunId | undefined): { run?: RunId } => (value === undefined ? {} : { run: value });
 
-	type ToolResult = { content: { type: "text"; text: string }[]; isError: boolean };
-	const reply = (value: Reply): ToolResult => ({
+	const reply = (value: Reply): AgentToolResult => ({
 		content: [
 			{
 				type: "text",
@@ -261,7 +260,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		],
 		isError: !value.ok,
 	});
-	const failure = (thrown: unknown): ToolResult => {
+	const failure = (thrown: unknown): AgentToolResult => {
 		const message = thrown instanceof Error ? thrown.message : String(thrown);
 		const code = message.startsWith("Disconnected:") ? "Disconnected" : "NoService";
 		return reply({ id: "", ok: false, error: { code, message } });
