@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playbook</title>
+  <link rel="stylesheet" href="panel.css">
+  <script type="module" src="panel.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div id="file"></div>
+      <div id="title"><h1>Playbook</h1></div>
+      <div class="toolbar">
+        <label>Document <select id="run"><option value="">Playbook</option></select></label>
+        <span id="coordinator" aria-live="polite"></span>
+      </div>
+      <p id="document-error" class="error" hidden></p>
+      <p id="feedback" role="status" hidden></p>
+    </header>
+    <section aria-labelledby="blocks-title">
+      <div class="toolbar"><h2 id="blocks-title">Blocks</h2><button id="run-selected" type="button" disabled>Run selected</button></div>
+      <div id="blocks"></div>
+    </section>
+    <section aria-labelledby="timeline-title">
+      <h2 id="timeline-title">Timeline</h2>
+      <form id="record">
+        <div class="record-fields">
+          <label>Kind <select id="kind"></select></label>
+          <label>Block <select id="record-block"></select></label>
+          <label>Thread message <select id="quote"></select></label>
+        </div>
+        <label id="record-text-label">Record <textarea id="record-text" rows="3" required></textarea></label>
+        <div class="toolbar record-actions"><button type="submit">Add record</button></div>
+      </form>
+      <p id="empty-log">No timeline entries yet.</p>
+      <ol id="timeline" reversed></ol>
+    </section>
+  </main>
+</body>
+</html>

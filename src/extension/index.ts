@@ -19,6 +19,7 @@ import { availableAgents } from "./agents";
 import { K1Client, type Reply } from "./client";
 import { listenPane, type PaneListener } from "./pane-listener";
 import { toolParameters } from "./params";
+import { type PlaybookPanel, recentMessages, servePanel, t3Preview } from "./t3";
 import { ensureTernPlugin, type TernPluginState } from "./tern-setup";
 import { playbookTopics } from "./topics";
 
@@ -92,18 +93,19 @@ function ternPane(): string | null {
 }
 
 export default async function (pi: ExtensionAPI): Promise<void> {
-	const inTern = ternPane();
-	if (inTern === null) {
+	const preview = t3Preview();
+	const pane = preview === null ? ternPane() : null;
+	if (pane === null && preview === null) {
 		await ensureTernPlugin();
 		return;
 	}
-	const pane: string = inTern;
 	const schemas = toolParameters(pi.zod);
 	const { frames, readResult, revisionsResult, runsResult, helloResult, postResult, launchRecord, evalInput } = schemas.wire;
 	type Tools = Omit<typeof schemas, "wire">;
 	type InternalOf<K extends keyof Tools> = ReturnType<Tools[K]["toInternal"]>;
 
 	const clients = new Map<string, K1Client>();
+	const panels = new Map<string, Promise<PlaybookPanel>>();
 	let session: string | undefined;
 	let stopped = false;
 
@@ -157,6 +159,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		if (session !== undefined && session !== currentSession) {
 			for (const client of clients.values()) client.close();
 			clients.clear();
+			for (const panel of panels.values()) void panel.then((opened) => opened.close(), () => undefined);
+			panels.clear();
 			launches = [];
 		}
 		session = currentSession;
@@ -164,7 +168,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		if (!client) {
 			client = new K1Client(
 				documentEndpoint(absolute),
-				{ session: currentSession, pane },
+				{ session: currentSession, ...(pane === null ? {} : { pane }) },
 				(input): ServerFrame =>
 					frames.parse(
 						input,
@@ -202,6 +206,30 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	async function open(file: string, ctx: ExtensionContext): Promise<Reply> {
 		const absolute = await documentFor(file);
 		const client = await clientFor(absolute, ctx);
+		if (preview !== null) {
+			let panel = panels.get(absolute);
+			if (panel === undefined) {
+				panel = servePanel(absolute, ctx);
+				panels.set(absolute, panel);
+			}
+			let opened: PlaybookPanel;
+			try {
+				opened = await panel;
+			} catch (error) {
+				if (panels.get(absolute) === panel) panels.delete(absolute);
+				return startFailed(error instanceof Error ? error.message : String(error));
+			}
+			if (panels.get(absolute) !== panel) return startFailed("Playbook session ended while opening the panel");
+			const ready = await client.connect();
+			if (!ready.ok) return ready;
+			try {
+				await opened.show(preview);
+			} catch (error) {
+				return startFailed(error instanceof Error ? error.message : String(error));
+			}
+			return ready;
+		}
+		if (pane === null) return startFailed("No Playbook pane is available");
 		const ready = await client.connect();
 		if (ready.ok || ready.error.code !== "NoService") return ready;
 		const split = await openServicePane(pane, absolute);
@@ -282,7 +310,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			parameters: schemas.playbook_open.parameters,
 			toInternal: schemas.playbook_open.toInternal,
 			description:
-				"Connect this session to a Playbook YAML as its coordinator, opening its Tern pane when none runs. Use to write, review or run multi-step agent work. → block ids, Runs.",
+				"Connect this session to a Playbook YAML as its coordinator and open its panel in T3 Preview or Tern. Use to write, review or run multi-step agent work. → block ids, Runs.",
 			run: (params, ctx) => open(params.doc, ctx),
 		} satisfies Tool<"playbook_open">,
 		{
@@ -550,7 +578,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		}
 	}
 
-	const ternState = await ensureTernPlugin();
+	const ternState = pane === null ? null : await ensureTernPlugin();
 
 	const header = tr("This is a Playbook document service notice, not a user message", "这是 Playbook 文档服务的通知，不是用户消息");
 
@@ -751,11 +779,13 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		if (ctx.agent.kind !== "main") return;
 		registerTools(tools);
 		registerCommands();
-		const notice = ternNotice(ternState);
-		if (notice) ctx.ui.notify(notice.text, notice.level);
+		if (ternState !== null) {
+			const notice = ternNotice(ternState);
+			if (notice) ctx.ui.notify(notice.text, notice.level);
+		}
 		paneContext = ctx;
 		busy = !ctx.isIdle();
-		if (paneListener === null) paneListener = await listenPane(paneEndpoint(pane), (request) => onPaneRequest(request, paneContext!));
+		if (pane !== null && paneListener === null) paneListener = await listenPane(paneEndpoint(pane), (request) => onPaneRequest(request, paneContext!));
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
@@ -774,6 +804,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		paneListener = null;
 		for (const client of clients.values()) client.close();
 		clients.clear();
+		for (const panel of panels.values()) void panel.then((opened) => opened.close(), () => undefined);
+		panels.clear();
 		launches = [];
 	});
 
@@ -806,6 +838,21 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	}
 
 	function registerCommands(): void {
+		if (preview !== null) {
+			pi.registerCommand("playbook-open", {
+				description: tr("Open a Playbook YAML in T3 Preview", "在 T3 预览中打开 Playbook YAML"),
+				handler: async (args, ctx) => {
+					try {
+						const file = args.trim();
+						if (file === "") throw new Error("Usage: /playbook-open <path.yaml>");
+						const ready = await open(file, ctx);
+						if (!ready.ok) throw new Error(ready.error.message);
+					} catch (error) {
+						ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+					}
+				},
+			});
+		}
 		pi.registerCommand("playbook-add", {
 			description: tr(
 				"Add a recent session message to a Playbook's execution log (the Playbook's own, or a Run's)",
@@ -813,19 +860,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			),
 			handler: async (args, ctx) => {
 				try {
+					if (preview !== null) {
+						const ready = await open(await documentFor(args.trim() || undefined), ctx);
+						if (!ready.ok) throw new Error(ready.error.message);
+						return;
+					}
 					const client = await commandClient(args, ctx);
 					if (!client) return;
-					const messages = ctx.sessionManager
-						.getBranch()
-						.flatMap((entry) => {
-							if (entry.type !== "message" || (entry.message.role !== "user" && entry.message.role !== "assistant")) return [];
-							const content = entry.message.content;
-							const text =
-								typeof content === "string" ? content : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
-							return text ? [{ id: entry.id, text, label: `${entry.id}: ${text.replace(/\s+/g, " ").slice(0, 90)}` }] : [];
-						})
-						.slice(-20)
-						.reverse();
+					const messages = recentMessages(ctx);
 					if (!messages.length) {
 						ctx.ui.notify(tr("No user or assistant messages with text", "没有包含文本的用户或助手消息"), "warning");
 						return;
@@ -895,9 +937,14 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			},
 		});
 		pi.registerCommand("playbook-show", {
-			description: tr("Focus the Playbook document pane in Tern", "聚焦 Tern 中的 Playbook 文档面板"),
+			description: tr("Show the Playbook document panel", "显示 Playbook 文档面板"),
 			handler: async (args, ctx) => {
 				try {
+					if (preview !== null) {
+						const ready = await open(await documentFor(args.trim() || undefined), ctx);
+						if (!ready.ok) throw new Error(ready.error.message);
+						return;
+					}
 					const client = await commandClient(args, ctx);
 					if (!client) return;
 					const hello = helloResult.parse(client.hello);

@@ -53,6 +53,20 @@ https://github.com/user-attachments/assets/cbe541a9-7bba-4ec2-aea8-fc61feed6559
 
 ## Install and open
 
+### T3 Code
+
+Install the `t3code` branch with the OMP installation used by the T3 Pi provider. The provider launches `omp-t3` with T3’s thread-scoped MCP connection, and T3’s server browser reaches the panel on the same host.
+
+```sh
+omp plugin install 'https://github.com/lychen2/omp-playbooks#t3code'
+```
+
+Start a new T3 thread and send `/playbook-open path/to/playbook.yaml`. The file must exist. `playbook_open` also opens the panel, and `/playbook-show` brings it back. The panel edits document and block titles, task instructions, and design requirements. It can request design revisions, launch or stop work, change block status, switch to an existing Run, and add timeline records, including quotes from the current thread. Execution requests return to the coordinating thread through the existing Playbook workflow.
+
+Each document has one live service. Close any other service for that file before opening it in T3. The T3 panel stays available while its coordinator session runs. Reopen the file from the new thread after changing sessions.
+
+### Tern
+
 You need [Bun](https://bun.sh), omp and Tern. The process that loads the extension must find `tern` on `PATH` for the Tern plugin to be linked; the environment that starts the document service must be able to run `bun`. GitHub issue/PR references also need an authenticated `gh`.
 
 The repository is [oh-my-omp/omp-playbooks](https://github.com/oh-my-omp/omp-playbooks); the installed omp package name and the Tern plugin ID are both `omp-playbooks`, which the upgrade and uninstall commands below use.
@@ -63,7 +77,7 @@ omp plugin install 'https://github.com/oh-my-omp/omp-playbooks#release'
 
 When the extension loads and finds `tern` on `PATH`, it links the package's `tern-plugin/` into Tern; it skips this when the same directory is already linked. Without `tern` it links nothing and the install still succeeds, so a machine without Tern can carry the plugin; a main session in a Tern pane whose omp has no `tern` on `PATH` gets a warning, and the next extension load that finds `tern` links the plugin. The link points at the omp install directory itself. The Tern daemon reloads plugin files edited in place, but an upgrade replaces the whole install directory, which leaves the daemon on a missing link target or an old version. The extension therefore compares the version in `tern-plugin/plugin.toml` with the version the daemon loaded, runs `tern plugin reload` when they differ, and reports the outcome in the next main session that runs in a Tern pane. If the versions still differ after the reload it only warns and does not abort the install; the next extension load compares again.
 
-Beyond that link, the extension acts only when omp runs in a Tern pane managed by the session daemon, which sets `TERN_PANE` to the pane's numeric ID. An omp started anywhere else (a plain terminal, `omp -p`, a missing or non-numeric `TERN_PANE`) gets nothing from it: no `playbook_*` tools or `xd://` topics, no commands, no notices and no eval rewriting.
+In Tern, the session daemon sets `TERN_PANE` to the pane’s numeric ID, which activates the extension. A plain OMP session requires Tern or the T3 provider connection to register Playbook tools, commands, notices, and eval rewriting.
 
 **Pulling the repository or restarting a session does not update the installed plugin copy.** If an older version is installed, update it first:
 
@@ -98,7 +112,7 @@ Main-session commands:
 - `/playbook-show [file path]`: jump to the pane of a connected document.
 - `/playbook-add [file path]`: pick recent session messages, the Playbook itself or a Run, a record kind and optionally a block, and add them to that execution log.
 
-These commands and the `playbook_*` tools are available only in a main session running in a Tern pane; subagents do not see them.
+The Playbook commands and tools are registered for main sessions in Tern and T3. Subagent sessions work from their assigned Launch prompts.
 
 The `playbook_*` tools are `xd://` devices: the model reads `xd://playbook_<name>` for the description and schema and writes the JSON arguments to it; eval calls them as `tool.playbook_<name>`. The extension registers them in the main session's `session_start`, after omp has built the session, so omp mounts them with a hidden mount notice on the next prompt instead of adding them to the system prompt or tool list. Adding them therefore never changes the prompt prefix the provider caches, and a subagent session, which never registers them, carries none of them.
 

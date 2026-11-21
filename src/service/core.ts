@@ -1267,11 +1267,8 @@ export class Core implements CoreApi, K1Handler {
 			}
 			case "runs":
 				return ok({ runs: this.runs() });
-			case "timeline": {
-				const doc = this.#docOf(request.args.run);
-				if (!doc.ok) return doc;
-				return ok(pageTimeline(doc.result.log.entries, request.args.after ?? 0, request.args.limit));
-			}
+			case "timeline":
+				return this.timeline(refOf(keyOfRun(request.args.run)), request.args.after, request.args.limit);
 			case "post": {
 				const args = request.args;
 				const result = this.#post(
@@ -1570,7 +1567,7 @@ export class Core implements CoreApi, K1Handler {
 		quote: string | null,
 		origin: "human" | "coordinator",
 		session: string | null,
-	): Outcome<unknown> {
+	): Outcome<{ readonly seq: number }> {
 		const found = this.#docOf(run);
 		if (!found.ok) return found;
 		const doc = found.result;
@@ -1620,6 +1617,15 @@ export class Core implements CoreApi, K1Handler {
 		this.#append(doc, "coordinator", { type: "update_snoozed", due });
 		this.#emit(doc.ref);
 		return ok({ due });
+	}
+
+	timeline(ref: DocRef, after = 0, limit?: number) {
+		const doc = this.#docOf(ref.kind === "run" ? ref.run : undefined);
+		return doc.ok ? ok(pageTimeline(doc.result.log.entries, after, limit)) : doc;
+	}
+
+	postHuman(ref: DocRef, kind: RecordKind, text: string, block: BlockId | null, quote: string | null = null) {
+		return this.#post(ref.kind === "run" ? ref.run : undefined, kind, text, block, null, null, quote, "human", this.#conn?.session ?? null);
 	}
 
 	view(ref: DocRef): DocView {
