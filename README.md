@@ -65,6 +65,8 @@ Start a new T3 thread and send `/playbook-open path/to/playbook.yaml`. The file 
 
 Each document has one live service. Close any other service for that file before opening it in T3. The T3 panel stays available while its coordinator session runs. Reopen the file from the new thread after changing sessions.
 
+The `/playbook-*` slash commands require an `omp-t3` bridge that translates the `omp-t3.command-settled` status signal. The `playbook_open` tool can open the panel from a normal agent turn.
+
 ### Tern
 
 You need [Bun](https://bun.sh), omp and Tern. The process that loads the extension must find `tern` on `PATH` for the Tern plugin to be linked; the environment that starts the document service must be able to run `bun`. GitHub issue/PR references also need an authenticated `gh`.

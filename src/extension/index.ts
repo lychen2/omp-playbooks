@@ -839,19 +839,29 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
 	function registerCommands(): void {
 		if (preview !== null) {
-			pi.registerCommand("playbook-open", {
-				description: tr("Open a Playbook YAML in T3 Preview", "在 T3 预览中打开 Playbook YAML"),
-				handler: async (args, ctx) => {
-					try {
-						const file = args.trim();
-						if (file === "") throw new Error("Usage: /playbook-open <path.yaml>");
-						const ready = await open(file, ctx);
-						if (!ready.ok) throw new Error(ready.error.message);
-					} catch (error) {
-						ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-					}
-				},
-			});
+			for (const [name, description] of [
+				["playbook-open", tr("Open a Playbook YAML in T3 Preview", "在 T3 预览中打开 Playbook YAML")],
+				["playbook-show", tr("Show the Playbook document panel", "显示 Playbook 文档面板")],
+				["playbook-add", tr("Add a thread message to the Playbook timeline", "将线程消息添加到 Playbook 时间线")],
+			] as const) {
+				pi.registerCommand(name, {
+					description,
+					handler: async (args, ctx) => {
+						try {
+							const path = args.trim();
+							if (name === "playbook-open" && path === "") throw new Error("Usage: /playbook-open <path.yaml>");
+							const ready = await open(await documentFor(path || undefined), ctx);
+							if (!ready.ok) throw new Error(ready.error.message);
+						} catch (error) {
+							ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+						} finally {
+							// omp-t3 translates completion of an asynchronous extension command into agent_settled.
+							ctx.ui.setStatus("omp-t3.command-settled", name);
+						}
+					},
+				});
+			}
+			return;
 		}
 		pi.registerCommand("playbook-add", {
 			description: tr(
@@ -860,11 +870,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			),
 			handler: async (args, ctx) => {
 				try {
-					if (preview !== null) {
-						const ready = await open(await documentFor(args.trim() || undefined), ctx);
-						if (!ready.ok) throw new Error(ready.error.message);
-						return;
-					}
 					const client = await commandClient(args, ctx);
 					if (!client) return;
 					const messages = recentMessages(ctx);
@@ -940,11 +945,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			description: tr("Show the Playbook document panel", "显示 Playbook 文档面板"),
 			handler: async (args, ctx) => {
 				try {
-					if (preview !== null) {
-						const ready = await open(await documentFor(args.trim() || undefined), ctx);
-						if (!ready.ok) throw new Error(ready.error.message);
-						return;
-					}
 					const client = await commandClient(args, ctx);
 					if (!client) return;
 					const hello = helloResult.parse(client.hello);
